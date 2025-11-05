@@ -94,7 +94,7 @@ fun GuardianApp(viewModel: MainViewModel) {
         }
 
         composable(Screen.CameraAssist.route) {
-            CameraAssistScreen(navController)
+            CameraAssistScreen(navController, viewModel)
         }
 
         composable(Screen.VoiceAssist.route) {

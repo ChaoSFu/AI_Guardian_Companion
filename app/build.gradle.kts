@@ -87,6 +87,15 @@ dependencies {
     // Permissions
     implementation(libs.accompanist.permissions)
 
+    // ML Kit
+    implementation(libs.mlkit.face.detection)
+    implementation(libs.mlkit.image.labeling)
+    implementation(libs.mlkit.pose.detection)
+
+    // TensorFlow Lite
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.support)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

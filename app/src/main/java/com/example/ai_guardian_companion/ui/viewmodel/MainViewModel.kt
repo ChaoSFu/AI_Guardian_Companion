@@ -6,8 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai_guardian_companion.GuardianApplication
 import com.example.ai_guardian_companion.data.model.*
 import com.example.ai_guardian_companion.data.repository.*
+import com.example.ai_guardian_companion.ai.conversation.ConversationManager
 import com.example.ai_guardian_companion.utils.LocationHelper
 import com.example.ai_guardian_companion.utils.NotificationHelper
+import com.example.ai_guardian_companion.utils.STTHelper
 import com.example.ai_guardian_companion.utils.TTSHelper
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -29,8 +31,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Helpers
     val ttsHelper = TTSHelper(application)
+    val sttHelper = STTHelper(application)
     private val notificationHelper = NotificationHelper(application)
     private val locationHelper = LocationHelper(application)
+
+    // Conversation Manager
+    val conversationManager = ConversationManager(application, ttsHelper, sttHelper)
 
     // State Flows
     val userProfile: StateFlow<UserProfile?> = userRepository.getUserProfile()
@@ -159,5 +165,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         ttsHelper.shutdown()
+        sttHelper.destroy()
     }
 }
