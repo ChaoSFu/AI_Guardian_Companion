@@ -29,6 +29,7 @@ fun HomeScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     val unresolvedEmergencies by viewModel.unresolvedEmergencies.collectAsState()
     val isEmergencyMode by viewModel.isEmergencyMode.collectAsState()
+    val isApiConfigured by viewModel.isApiConfigured.collectAsState()
 
     Scaffold(
         topBar = {
@@ -103,11 +104,64 @@ fun HomeScreen(
                 }
             }
 
+            // API 配置提醒
+            if (!isApiConfigured) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "🔑 配置 OpenAI API",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Text(
+                            text = "开启云端 AI 功能，体验更智能的实时对话和场景识别",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                        )
+                        Button(
+                            onClick = {
+                                viewModel.ttsHelper.speak("前往设置")
+                                navController.navigate(Screen.Settings.route)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Text(
+                                text = "立即配置",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
             // 功能按钮区域
             Text(
                 text = "主要功能",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold
+            )
+
+            // 大按钮：实时会话（NEW！）
+            LargeAccessibleButton(
+                text = "🎥 实时会话",
+                description = "像 ChatGPT 一样的语音视频交互",
+                onClick = {
+                    viewModel.ttsHelper.speak("开启实时会话模式")
+                    navController.navigate(Screen.Session.route)
+                }
             )
 
             // 大按钮：视觉辅助
@@ -147,6 +201,16 @@ fun HomeScreen(
                 onClick = {
                     viewModel.ttsHelper.speak("打开家人管理")
                     navController.navigate(Screen.FamilyManagement.route)
+                }
+            )
+
+            // 大按钮：设置
+            LargeAccessibleButton(
+                text = "⚙️ 设置",
+                description = "配置 API 和功能开关",
+                onClick = {
+                    viewModel.ttsHelper.speak("打开设置")
+                    navController.navigate(Screen.Settings.route)
                 }
             )
 

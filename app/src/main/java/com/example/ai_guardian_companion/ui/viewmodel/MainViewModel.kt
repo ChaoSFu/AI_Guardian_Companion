@@ -7,6 +7,7 @@ import com.example.ai_guardian_companion.GuardianApplication
 import com.example.ai_guardian_companion.data.model.*
 import com.example.ai_guardian_companion.data.repository.*
 import com.example.ai_guardian_companion.ai.conversation.ConversationManager
+import com.example.ai_guardian_companion.config.AppConfig
 import com.example.ai_guardian_companion.utils.LocationHelper
 import com.example.ai_guardian_companion.utils.NotificationHelper
 import com.example.ai_guardian_companion.utils.STTHelper
@@ -35,6 +36,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val notificationHelper = NotificationHelper(application)
     private val locationHelper = LocationHelper(application)
 
+    // Configuration
+    private val appConfig = AppConfig(application)
+
     // Conversation Manager
     val conversationManager = ConversationManager(application, ttsHelper, sttHelper)
 
@@ -57,8 +61,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isEmergencyMode = MutableStateFlow(false)
     val isEmergencyMode: StateFlow<Boolean> = _isEmergencyMode
 
+    // API 配置状态
+    private val _isApiConfigured = MutableStateFlow(appConfig.isConfigured())
+    val isApiConfigured: StateFlow<Boolean> = _isApiConfigured
+
     init {
         startLocationTracking()
+    }
+
+    /**
+     * 刷新API配置状态
+     */
+    fun refreshApiConfigStatus() {
+        _isApiConfigured.value = appConfig.isConfigured()
     }
 
     /**

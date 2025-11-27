@@ -1,3 +1,4 @@
+
 package com.example.ai_guardian_companion
 
 import android.Manifest
@@ -91,6 +92,14 @@ fun GuardianApp(viewModel: MainViewModel) {
     ) {
         composable(Screen.Home.route) {
             HomeScreen(navController, viewModel)
+        }
+
+        composable(Screen.Session.route) {
+            SessionScreen()
+        }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(navController, viewModel)
         }
 
         composable(Screen.CameraAssist.route) {
