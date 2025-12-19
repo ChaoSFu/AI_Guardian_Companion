@@ -3,102 +3,57 @@ package com.example.ai_guardian_companion
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.example.ai_guardian_companion.ui.navigation.Screen
-import com.example.ai_guardian_companion.ui.screens.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.example.ai_guardian_companion.ui.theme.AI_Guardian_CompanionTheme
-import com.example.ai_guardian_companion.ui.viewmodel.MainViewModel
-import com.example.ai_guardian_companion.utils.PermissionManager
 
 /**
- * 主Activity
- * 应用的入口点，管理导航和权限
+ * Main Activity
+ * 应用程序入口
  */
 class MainActivity : ComponentActivity() {
-
-    private val viewModel: MainViewModel by viewModels()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             AI_Guardian_CompanionTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    GuardianApp(viewModel)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    MainScreen()
                 }
             }
         }
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        viewModel.ttsHelper.shutdown()
-    }
 }
 
 @Composable
-fun GuardianApp(viewModel: MainViewModel) {
-    val context = LocalContext.current
-    val navController = rememberNavController()
-
-    // 检查权限状态
-    var permissionsGranted by remember {
-        mutableStateOf(PermissionManager.checkAllPermissions(context))
-    }
-
-    // 如果权限未授予，显示权限请求屏幕
-    if (!permissionsGranted) {
-        PermissionScreen(
-            onPermissionsGranted = {
-                permissionsGranted = true
-                viewModel.ttsHelper.speak("权限已授予，欢迎使用")
-            }
-        )
-    } else {
-        // 权限已授予，显示主应用界面
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Home.route
+fun MainScreen() {
+    Scaffold(
+        modifier = Modifier.fillMaxSize()
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentAlignment = Alignment.Center
         ) {
-            composable(Screen.Home.route) {
-                HomeScreen(navController, viewModel)
-            }
-
-            composable(Screen.Session.route) {
-                SessionScreen()
-            }
-
-            composable(Screen.Guide.route) {
-                GuideScreen(navController)
-            }
-
-            composable(Screen.Settings.route) {
-                SettingsScreen(navController, viewModel)
-            }
-
-            composable(Screen.CameraAssist.route) {
-                CameraAssistScreen(navController, viewModel)
-            }
-
-            composable(Screen.VoiceAssist.route) {
-                VoiceAssistScreen(navController, viewModel)
-            }
-
-            composable(Screen.Reminder.route) {
-                ReminderScreen(navController, viewModel)
-            }
-
-            composable(Screen.FamilyManagement.route) {
-                FamilyManagementScreen(navController, viewModel)
-            }
+            Text(
+                text = "AI Guardian Companion",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
