@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.*
@@ -15,6 +16,10 @@ import java.util.*
  * 使用 Android SpeechRecognizer 进行语音识别
  */
 class STTHelper(private val context: Context) {
+
+    companion object {
+        private const val TAG = "STTHelper"
+    }
 
     private var speechRecognizer: SpeechRecognizer? = null
     private val recognizerIntent: Intent
@@ -49,57 +54,69 @@ class STTHelper(private val context: Context) {
     }
 
     private fun initializeSpeechRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+        val isAvailable = SpeechRecognizer.isRecognitionAvailable(context)
+        Log.d(TAG, "语音识别是否可用: $isAvailable")
+
+        if (isAvailable) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            Log.d(TAG, "SpeechRecognizer 已创建")
+
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
+                    Log.d(TAG, "准备就绪，可以开始说话")
                     _isListening.value = true
                     _error.value = null
                 }
 
                 override fun onBeginningOfSpeech() {
-                    // 用户开始说话
+                    Log.d(TAG, "用户开始说话")
                 }
 
                 override fun onRmsChanged(rmsdB: Float) {
-                    // 音量变化
+                    // 音量变化 - 不记录以避免日志过多
                 }
 
                 override fun onBufferReceived(buffer: ByteArray?) {
-                    // 接收到音频数据
+                    Log.d(TAG, "接收到音频数据: ${buffer?.size ?: 0} 字节")
                 }
 
                 override fun onEndOfSpeech() {
+                    Log.d(TAG, "语音结束")
                     _isListening.value = false
                 }
 
                 override fun onError(error: Int) {
+                    val errorText = getErrorText(error)
+                    Log.e(TAG, "语音识别错误: $errorText (code: $error)")
                     _isListening.value = false
-                    _error.value = getErrorText(error)
+                    _error.value = errorText
                 }
 
                 override fun onResults(results: Bundle?) {
                     _isListening.value = false
                     results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.let { matches ->
+                        Log.d(TAG, "识别结果: ${matches.joinToString()}")
                         if (matches.isNotEmpty()) {
                             _recognizedText.value = matches[0]
                         }
-                    }
+                    } ?: Log.w(TAG, "识别结果为空")
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
-                    // 部分识别结果
                     partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.let { matches ->
                         if (matches.isNotEmpty()) {
+                            Log.d(TAG, "部分识别结果: ${matches[0]}")
                             _recognizedText.value = matches[0]
                         }
                     }
                 }
 
                 override fun onEvent(eventType: Int, params: Bundle?) {
-                    // 保留的事件
+                    Log.d(TAG, "收到事件: $eventType")
                 }
             })
+        } else {
+            Log.e(TAG, "语音识别服务不可用！请检查设备是否安装了 Google 应用")
         }
     }
 
@@ -108,9 +125,22 @@ class STTHelper(private val context: Context) {
      */
     fun startListening() {
         if (!_isListening.value) {
+            if (speechRecognizer == null) {
+                Log.e(TAG, "无法开始语音识别：SpeechRecognizer 未初始化")
+                _error.value = "语音识别服务不可用"
+                return
+            }
+            Log.d(TAG, "开始语音识别")
             _recognizedText.value = ""
             _error.value = null
-            speechRecognizer?.startListening(recognizerIntent)
+            try {
+                speechRecognizer?.startListening(recognizerIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "启动语音识别失败", e)
+                _error.value = "启动失败: ${e.message}"
+            }
+        } else {
+            Log.w(TAG, "语音识别已在进行中")
         }
     }
 
@@ -119,6 +149,7 @@ class STTHelper(private val context: Context) {
      */
     fun stopListening() {
         if (_isListening.value) {
+            Log.d(TAG, "停止语音识别")
             speechRecognizer?.stopListening()
         }
     }
@@ -127,6 +158,7 @@ class STTHelper(private val context: Context) {
      * 取消语音识别
      */
     fun cancel() {
+        Log.d(TAG, "取消语音识别")
         speechRecognizer?.cancel()
         _isListening.value = false
     }

@@ -232,7 +232,7 @@ app/src/main/java/com/example/ai_guardian_companion/
 - **场景识别**: 自动识别室内/室外/危险场景
 - **人脸检测**: 识别周围人数
 - **实时字幕**: 显示语音识别和 AI 回复
-- **语音交互**: 按住说话，AI 实时回复
+- **语音交互**: AI 实时回复
 
 ### 2. 视觉辅助（Camera Assist）
 

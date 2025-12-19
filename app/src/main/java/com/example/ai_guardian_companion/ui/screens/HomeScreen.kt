@@ -154,7 +154,17 @@ fun HomeScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            // 大按钮：实时会话（NEW！）
+            // 大按钮：导盲助手（NEW！）
+            LargeAccessibleButton(
+                text = "🧭 导盲助手",
+                description = "语音导航和场景识别",
+                onClick = {
+                    viewModel.ttsHelper.speak("开启导盲助手")
+                    navController.navigate(Screen.Guide.route)
+                }
+            )
+
+            // 大按钮：实时会话
             LargeAccessibleButton(
                 text = "🎥 实时会话",
                 description = "像 ChatGPT 一样的语音视频交互",

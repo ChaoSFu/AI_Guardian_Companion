@@ -16,10 +16,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.compose.ui.platform.LocalContext
 import com.example.ai_guardian_companion.ai.conversation.ConversationMessage
 import com.example.ai_guardian_companion.ai.conversation.MessageType
 import com.example.ai_guardian_companion.data.model.EmergencyType
 import com.example.ai_guardian_companion.ui.viewmodel.MainViewModel
+import com.example.ai_guardian_companion.utils.DiagnosticsHelper
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -35,6 +37,7 @@ fun VoiceAssistScreen(
     navController: NavController,
     viewModel: MainViewModel
 ) {
+    val context = LocalContext.current
     val audioPermissionState = rememberPermissionState(Manifest.permission.RECORD_AUDIO)
 
     val isListening by viewModel.sttHelper.isListening.collectAsState()
@@ -46,6 +49,9 @@ fun VoiceAssistScreen(
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
+    // 诊断结果
+    val diagnosticResult = remember { DiagnosticsHelper.checkSpeechRecognition(context) }
 
     // 监听识别结果
     LaunchedEffect(recognizedText) {
@@ -213,27 +219,87 @@ fun VoiceAssistScreen(
                 }
             }
         } else {
-            // 请求麦克风权限
+            // 请求麦克风权限并显示诊断信息
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
+                    .padding(padding)
+                    .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "需要麦克风权限",
-                    fontSize = 24.sp,
+                    text = "语音功能诊断",
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 显示诊断结果
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (diagnosticResult.isHealthy)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "检测结果：",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        diagnosticResult.issues.forEach { issue ->
+                            Text(
+                                text = issue,
+                                fontSize = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                // 显示建议
+                if (diagnosticResult.suggestions.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "解决方案：",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            diagnosticResult.suggestions.forEachIndexed { index, suggestion ->
+                                Text(
+                                    text = "${index + 1}. $suggestion",
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 授予权限按钮
                 Button(
                     onClick = { audioPermissionState.launchPermissionRequest() },
                     modifier = Modifier
-                        .fillMaxWidth(0.8f)
+                        .fillMaxWidth(0.9f)
                         .height(60.dp)
                 ) {
-                    Text("授予麦克风权限", fontSize = 18.sp)
+                    Text("授予麦克风权限", fontSize = 20.sp)
                 }
             }
         }

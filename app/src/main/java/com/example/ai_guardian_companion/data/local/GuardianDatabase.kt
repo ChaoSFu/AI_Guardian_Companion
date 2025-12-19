@@ -14,9 +14,11 @@ import com.example.ai_guardian_companion.data.model.*
         FamilyMember::class,
         MedicationReminder::class,
         LocationLog::class,
-        EmergencyEvent::class
+        EmergencyEvent::class,
+        GuideMessage::class,
+        GuideSession::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -27,6 +29,8 @@ abstract class GuardianDatabase : RoomDatabase() {
     abstract fun medicationReminderDao(): MedicationReminderDao
     abstract fun locationLogDao(): LocationLogDao
     abstract fun emergencyEventDao(): EmergencyEventDao
+    abstract fun guideMessageDao(): GuideMessageDao
+    abstract fun guideSessionDao(): GuideSessionDao
 
     companion object {
         @Volatile
