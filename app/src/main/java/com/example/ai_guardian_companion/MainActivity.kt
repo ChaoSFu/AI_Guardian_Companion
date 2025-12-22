@@ -8,9 +8,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import com.example.ai_guardian_companion.ui.screens.PermissionRequestScreen
-import com.example.ai_guardian_companion.ui.screens.RealtimeScreen
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.ai_guardian_companion.storage.SettingsDataStore
+import com.example.ai_guardian_companion.ui.screens.*
 import com.example.ai_guardian_companion.ui.theme.AI_Guardian_CompanionTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Main Activity
@@ -20,30 +25,121 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // TODO: 配置你的 OpenAI API Key
-        // 方式1: 从环境变量或配置文件读取
-        // 方式2: 使用 BuildConfig（推荐用于生产环境）
-        val apiKey = "YOUR_OPENAI_API_KEY_HERE"
-
         setContent {
             AI_Guardian_CompanionTheme {
-                var permissionsGranted by remember { mutableStateOf(false) }
-
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (permissionsGranted) {
-                        RealtimeScreen(apiKey = apiKey)
+                    AppNavigation()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 应用导航
+ */
+@Composable
+fun AppNavigation() {
+    val navController = rememberNavController()
+    val settingsDataStore = remember { SettingsDataStore(navController.context) }
+    var apiKey by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    // 加载 API Key
+    LaunchedEffect(Unit) {
+        scope.launch {
+            apiKey = settingsDataStore.apiKey.first()
+        }
+    }
+
+    NavHost(
+        navController = navController,
+        startDestination = "home"
+    ) {
+        // 主屏幕
+        composable("home") {
+            HomeScreen(
+                onNavigateToSession = {
+                    navController.navigate("permission")
+                },
+                onNavigateToSettings = {
+                    navController.navigate("settings")
+                },
+                onNavigateToHistory = {
+                    navController.navigate("history")
+                }
+            )
+        }
+
+        // 权限请求
+        composable("permission") {
+            PermissionRequestScreen(
+                onPermissionsGranted = {
+                    if (apiKey.isNullOrEmpty()) {
+                        navController.navigate("settings")
                     } else {
-                        PermissionRequestScreen(
-                            onPermissionsGranted = {
-                                permissionsGranted = true
-                            }
-                        )
+                        navController.navigate("session")
+                    }
+                }
+            )
+        }
+
+        // 实时会话
+        composable("session") {
+            apiKey?.let { key ->
+                RealtimeScreen(
+                    apiKey = key,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            } ?: run {
+                // 如果没有 API Key，导航到设置
+                LaunchedEffect(Unit) {
+                    navController.navigate("settings") {
+                        popUpTo("home")
                     }
                 }
             }
+        }
+
+        // 设置
+        composable("settings") {
+            SettingsScreen(
+                onNavigateBack = {
+                    // 重新加载 API Key
+                    scope.launch {
+                        apiKey = settingsDataStore.apiKey.first()
+                    }
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // 历史记录
+        composable("history") {
+            HistoryScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToDetail = { sessionId ->
+                    navController.navigate("session_detail/$sessionId")
+                }
+            )
+        }
+
+        // 会话详情
+        composable("session_detail/{sessionId}") { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+            SessionDetailScreen(
+                sessionId = sessionId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }

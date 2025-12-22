@@ -1,0 +1,315 @@
+package com.example.ai_guardian_companion.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ai_guardian_companion.ui.viewmodel.SettingsViewModel
+
+/**
+ * 设置界面
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: SettingsViewModel = viewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var showApiKey by remember { mutableStateOf(false) }
+
+    // 显示保存成功提示
+    LaunchedEffect(uiState.saveSuccess) {
+        if (uiState.saveSuccess) {
+            kotlinx.coroutines.delay(2000)
+            viewModel.clearSaveSuccess()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "设置",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "返回"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            // API Key 设置
+            Text(
+                text = "OpenAI API 配置",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // API Key 输入
+            OutlinedTextField(
+                value = uiState.apiKey,
+                onValueChange = { viewModel.updateApiKey(it) },
+                label = { Text("API Key") },
+                placeholder = { Text("sk-...") },
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = if (showApiKey) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { showApiKey = !showApiKey }) {
+                        Icon(
+                            imageVector = if (showApiKey) {
+                                Icons.Default.Clear
+                            } else {
+                                Icons.Default.Check
+                            },
+                            contentDescription = if (showApiKey) "隐藏" else "显示"
+                        )
+                    }
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 获取 API Key 提示
+            Text(
+                text = "在 platform.openai.com 获取您的 API Key",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 模型选择
+            OutlinedTextField(
+                value = uiState.modelName,
+                onValueChange = { viewModel.updateModelName(it) },
+                label = { Text("模型名称") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "默认: gpt-4o-realtime-preview-2024-12-17",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 测试连接按钮
+            Button(
+                onClick = { viewModel.testApiConnection() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isTesting && uiState.apiKey.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary
+                )
+            ) {
+                if (uiState.isTesting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("测试中...")
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("测试连接")
+                }
+            }
+
+            // 测试结果
+            uiState.testResult?.let { result ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = when (result) {
+                        SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50).copy(alpha = 0.1f)
+                        SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336).copy(alpha = 0.1f)
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = when (result) {
+                                SettingsViewModel.TestResult.SUCCESS -> Icons.Default.Check
+                                SettingsViewModel.TestResult.FAILED -> Icons.Default.Close
+                            },
+                            contentDescription = null,
+                            tint = when (result) {
+                                SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
+                                SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Text(
+                            text = uiState.testMessage ?: "",
+                            fontSize = 14.sp,
+                            color = when (result) {
+                                SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
+                                SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 保存按钮
+            Button(
+                onClick = { viewModel.saveSettings() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("保存设置")
+            }
+
+            // 保存成功提示
+            if (uiState.saveSuccess) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF4CAF50).copy(alpha = 0.1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Color(0xFF4CAF50)
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Text(
+                            text = "设置已保存",
+                            fontSize = 14.sp,
+                            color = Color(0xFF4CAF50)
+                        )
+                    }
+                }
+            }
+
+            // 错误提示
+            uiState.errorMessage?.let { error ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF44336).copy(alpha = 0.1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = Color(0xFFF44336)
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Text(
+                            text = error,
+                            fontSize = 14.sp,
+                            color = Color(0xFFF44336)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 使用说明
+            Text(
+                text = "使用说明",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = """
+                    1. 在 OpenAI 平台获取 API Key
+                    2. 输入 API Key 并测试连接
+                    3. 保存设置后即可使用实时对话功能
+                    4. API Key 将安全地存储在本地设备
+                """.trimIndent(),
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                lineHeight = 20.sp
+            )
+        }
+    }
+}

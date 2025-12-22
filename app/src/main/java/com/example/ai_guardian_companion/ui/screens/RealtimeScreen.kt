@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -36,6 +37,7 @@ import com.example.ai_guardian_companion.ui.viewmodel.RealtimeViewModel
 @Composable
 fun RealtimeScreen(
     apiKey: String,
+    onNavigateBack: () -> Unit = {},
     viewModel: RealtimeViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -55,6 +57,14 @@ fun RealtimeScreen(
                         text = "AI Guardian Companion",
                         fontWeight = FontWeight.Bold
                     )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "返回"
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,

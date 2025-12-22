@@ -29,6 +29,12 @@ interface SessionDao {
     suspend fun getSessionById(sessionId: String): SessionEntity?
 
     /**
+     * 根据 ID 获取会话（Flow）
+     */
+    @Query("SELECT * FROM sessions WHERE sessionId = :sessionId")
+    fun getSessionByIdFlow(sessionId: String): Flow<SessionEntity?>
+
+    /**
      * 根据 ID 获取会话（同步）
      */
     @Query("SELECT * FROM sessions WHERE sessionId = :sessionId")
@@ -63,6 +69,18 @@ interface SessionDao {
      */
     @Delete
     suspend fun deleteSession(session: SessionEntity)
+
+    /**
+     * 根据 ID 删除会话
+     */
+    @Query("DELETE FROM sessions WHERE sessionId = :sessionId")
+    suspend fun deleteSessionById(sessionId: String)
+
+    /**
+     * 删除所有会话
+     */
+    @Query("DELETE FROM sessions")
+    suspend fun deleteAllSessions()
 
     /**
      * 根据时间范围获取会话
