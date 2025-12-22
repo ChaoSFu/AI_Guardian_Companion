@@ -257,24 +257,40 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     override fun onAudioDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseAudioDone) {}
 
                     override fun onTextDelta(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseTextDelta) {
+                        // Text responses (not used for our test)
+                    }
+
+                    override fun onTextDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseTextDone) {
+                        // Text responses (not used for our test)
+                    }
+
+                    override fun onResponseDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseDone) {
                         if (!receivedResponse) {
                             receivedResponse = true
-                            Log.d(TAG, "✅ Received text response: ${message.delta}")
-                            _uiState.update {
-                                it.copy(
-                                    isTestingRealtime = false,
-                                    realtimeTestResult = TestResult.SUCCESS,
-                                    realtimeTestMessage = "Realtime API 测试成功！收到模型回复: ${message.delta}"
-                                )
+                            val status = message.response.status
+                            Log.d(TAG, "✅ Response done with status: $status")
+
+                            if (status == "completed") {
+                                _uiState.update {
+                                    it.copy(
+                                        isTestingRealtime = false,
+                                        realtimeTestResult = TestResult.SUCCESS,
+                                        realtimeTestMessage = "Realtime API 测试成功！模型已正常响应（状态: $status）"
+                                    )
+                                }
+                            } else {
+                                _uiState.update {
+                                    it.copy(
+                                        isTestingRealtime = false,
+                                        realtimeTestResult = TestResult.FAILED,
+                                        realtimeTestMessage = "响应状态异常: $status"
+                                    )
+                                }
                             }
                             // 断开连接
                             testWebSocket?.disconnect()
                         }
                     }
-
-                    override fun onTextDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseTextDone) {}
-
-                    override fun onResponseDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseDone) {}
 
                     override fun onServerError(message: com.example.ai_guardian_companion.openai.ServerMessage.Error) {
                         Log.e(TAG, "❌ Realtime server error: ${message.error.message}")
