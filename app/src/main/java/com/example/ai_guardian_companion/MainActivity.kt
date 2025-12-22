@@ -3,18 +3,13 @@ package com.example.ai_guardian_companion
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import com.example.ai_guardian_companion.ui.screens.PermissionRequestScreen
+import com.example.ai_guardian_companion.ui.screens.RealtimeScreen
 import com.example.ai_guardian_companion.ui.theme.AI_Guardian_CompanionTheme
 
 /**
@@ -24,36 +19,31 @@ import com.example.ai_guardian_companion.ui.theme.AI_Guardian_CompanionTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // TODO: 配置你的 OpenAI API Key
+        // 方式1: 从环境变量或配置文件读取
+        // 方式2: 使用 BuildConfig（推荐用于生产环境）
+        val apiKey = "YOUR_OPENAI_API_KEY_HERE"
+
         setContent {
             AI_Guardian_CompanionTheme {
+                var permissionsGranted by remember { mutableStateOf(false) }
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainScreen()
+                    if (permissionsGranted) {
+                        RealtimeScreen(apiKey = apiKey)
+                    } else {
+                        PermissionRequestScreen(
+                            onPermissionsGranted = {
+                                permissionsGranted = true
+                            }
+                        )
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun MainScreen() {
-    Scaffold(
-        modifier = Modifier.fillMaxSize()
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "AI Guardian Companion",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
         }
     }
 }
