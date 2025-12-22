@@ -1,9 +1,10 @@
 package com.example.ai_guardian_companion.openai
 
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.google.gson.*
+import com.google.gson.reflect.TypeToken
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonWriter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +31,12 @@ class RealtimeWebSocket(
         private const val PING_INTERVAL_SECONDS = 30L
     }
 
-    private val gson = Gson()
+    // 配置 Gson 以支持特殊浮点值（infinity, NaN）
+    private val gson = GsonBuilder()
+        .serializeSpecialFloatingPointValues()
+        .registerTypeAdapter(Int::class.java, IntOrInfinityAdapter())
+        .registerTypeAdapter(object : TypeToken<Int?>() {}.type, NullableIntOrInfinityAdapter())
+        .create()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var webSocket: WebSocket? = null
@@ -328,5 +334,80 @@ class RealtimeWebSocket(
          * 达到最大重连次数
          */
         fun onMaxReconnectAttemptsReached()
+    }
+}
+
+/**
+ * 自定义 TypeAdapter：处理 "inf" 字符串
+ * 将 "inf" 转换为 Int.MAX_VALUE
+ */
+class IntOrInfinityAdapter : TypeAdapter<Int>() {
+    override fun write(out: JsonWriter, value: Int?) {
+        if (value == null) {
+            out.nullValue()
+        } else if (value == Int.MAX_VALUE) {
+            out.value("inf")
+        } else {
+            out.value(value)
+        }
+    }
+
+    override fun read(input: JsonReader): Int {
+        return when (val peek = input.peek()) {
+            com.google.gson.stream.JsonToken.STRING -> {
+                val str = input.nextString()
+                when (str) {
+                    "inf", "Infinity" -> Int.MAX_VALUE
+                    "-inf", "-Infinity" -> Int.MIN_VALUE
+                    else -> str.toIntOrNull() ?: 0
+                }
+            }
+            com.google.gson.stream.JsonToken.NUMBER -> input.nextInt()
+            com.google.gson.stream.JsonToken.NULL -> {
+                input.nextNull()
+                0
+            }
+            else -> {
+                input.skipValue()
+                0
+            }
+        }
+    }
+}
+
+/**
+ * 可空 Int TypeAdapter：处理 "inf" 字符串
+ */
+class NullableIntOrInfinityAdapter : TypeAdapter<Int?>() {
+    override fun write(out: JsonWriter, value: Int?) {
+        if (value == null) {
+            out.nullValue()
+        } else if (value == Int.MAX_VALUE) {
+            out.value("inf")
+        } else {
+            out.value(value)
+        }
+    }
+
+    override fun read(input: JsonReader): Int? {
+        return when (val peek = input.peek()) {
+            com.google.gson.stream.JsonToken.STRING -> {
+                val str = input.nextString()
+                when (str) {
+                    "inf", "Infinity" -> Int.MAX_VALUE
+                    "-inf", "-Infinity" -> Int.MIN_VALUE
+                    else -> str.toIntOrNull()
+                }
+            }
+            com.google.gson.stream.JsonToken.NUMBER -> input.nextInt()
+            com.google.gson.stream.JsonToken.NULL -> {
+                input.nextNull()
+                null
+            }
+            else -> {
+                input.skipValue()
+                null
+            }
+        }
     }
 }
