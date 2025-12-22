@@ -156,6 +156,7 @@ class AudioInputManager(
      */
     private suspend fun readAudioData() {
         val buffer = ByteArray(BYTES_PER_CHUNK)
+        var chunkCount = 0
 
         try {
             while (currentCoroutineContext().isActive && isRecording) {
@@ -176,6 +177,12 @@ class AudioInputManager(
                             rmsEnergy = rmsEnergy
                         )
                         _audioFlow.emit(chunk)
+
+                        // 每100个chunk记录一次（避免日志过多）
+                        chunkCount++
+                        if (chunkCount % 100 == 0) {
+                            Log.v(TAG, "📊 Audio chunks recorded: $chunkCount, RMS: $rmsEnergy")
+                        }
                     }
                     bytesRead == AudioRecord.ERROR_INVALID_OPERATION -> {
                         Log.e(TAG, "Read error: INVALID_OPERATION")
@@ -190,6 +197,7 @@ class AudioInputManager(
                     }
                 }
             }
+            Log.i(TAG, "📊 Total audio chunks recorded: $chunkCount")
         } catch (e: Exception) {
             Log.e(TAG, "Audio reading failed", e)
         }

@@ -53,14 +53,22 @@ class VadDetector {
                     consecutiveSpeechChunks++
                     consecutiveSilenceChunks = 0
 
+                    // Log progress towards speech detection
+                    if (consecutiveSpeechChunks == 1 || consecutiveSpeechChunks % 5 == 0) {
+                        Log.v(TAG, "🔊 Energy above threshold: ${chunk.rmsEnergy} > $ENERGY_THRESHOLD, chunks: $consecutiveSpeechChunks/$speechStartThresholdChunks")
+                    }
+
                     if (consecutiveSpeechChunks >= speechStartThresholdChunks) {
                         // 检测到语音开始
                         state = VadState.SPEECH
                         consecutiveSpeechChunks = 0
-                        Log.d(TAG, "🎤 Speech started (energy=${chunk.rmsEnergy})")
+                        Log.i(TAG, "🎤 Speech STARTED (energy=${chunk.rmsEnergy}, threshold=$ENERGY_THRESHOLD)")
                         _vadEvents.emit(VadEvent.SpeechStart(chunk.timestamp))
                     }
                 } else {
+                    if (consecutiveSpeechChunks > 0) {
+                        Log.v(TAG, "🔉 Energy dropped, resetting speech chunks (energy=${chunk.rmsEnergy})")
+                    }
                     consecutiveSpeechChunks = 0
                 }
             }
@@ -70,14 +78,22 @@ class VadDetector {
                     consecutiveSilenceChunks++
                     consecutiveSpeechChunks = 0
 
+                    // Log progress towards silence detection
+                    if (consecutiveSilenceChunks == 1 || consecutiveSilenceChunks % 10 == 0) {
+                        Log.v(TAG, "🔉 Energy below threshold: ${chunk.rmsEnergy} < $ENERGY_THRESHOLD, chunks: $consecutiveSilenceChunks/$speechEndThresholdChunks")
+                    }
+
                     if (consecutiveSilenceChunks >= speechEndThresholdChunks) {
                         // 检测到语音停止
                         state = VadState.SILENCE
                         consecutiveSilenceChunks = 0
-                        Log.d(TAG, "🔇 Speech stopped (energy=${chunk.rmsEnergy})")
+                        Log.i(TAG, "🔇 Speech STOPPED (energy=${chunk.rmsEnergy}, threshold=$ENERGY_THRESHOLD)")
                         _vadEvents.emit(VadEvent.SpeechEnd(chunk.timestamp))
                     }
                 } else {
+                    if (consecutiveSilenceChunks > 0) {
+                        Log.v(TAG, "🔊 Energy increased, resetting silence chunks (energy=${chunk.rmsEnergy})")
+                    }
                     consecutiveSilenceChunks = 0
                 }
             }

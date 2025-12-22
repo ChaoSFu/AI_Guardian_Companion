@@ -232,7 +232,10 @@ class ConversationManager(
                 // 发送到 WebSocket
                 val base64Audio = AudioProcessor.pcm16ToBase64(audioChunk.data)
                 val message = ClientMessage.InputAudioBufferAppend(audio = base64Audio)
-                realtimeWebSocket.send(message)
+                val sent = realtimeWebSocket.send(message)
+                if (!sent) {
+                    Log.w(TAG, "⚠️ Failed to send audio chunk")
+                }
             }
             ConversationState.MODEL_SPEAKING -> {
                 // 模型正在说话，检测打断
@@ -240,6 +243,8 @@ class ConversationManager(
             }
             else -> {
                 // IDLE or INTERRUPTING: 不发送音频
+                // Log at VERBOSE level to avoid spam
+                Log.v(TAG, "⏸️ Not sending audio in state: ${_conversationState.value}")
             }
         }
     }
@@ -250,9 +255,11 @@ class ConversationManager(
     private suspend fun handleVadEvent(vadEvent: VadDetector.VadEvent) {
         when (vadEvent) {
             is VadDetector.VadEvent.SpeechStart -> {
+                Log.i(TAG, "🎤 VAD: Speech START detected at ${vadEvent.timestamp}")
                 handleSpeechStart(vadEvent.timestamp)
             }
             is VadDetector.VadEvent.SpeechEnd -> {
+                Log.i(TAG, "🎤 VAD: Speech END detected at ${vadEvent.timestamp}")
                 handleSpeechEnd(vadEvent.timestamp)
             }
         }
@@ -262,9 +269,13 @@ class ConversationManager(
      * 处理语音开始
      */
     private suspend fun handleSpeechStart(timestamp: Long) {
-        when (_conversationState.value) {
+        val currentState = _conversationState.value
+        Log.d(TAG, "🔄 handleSpeechStart in state: $currentState")
+
+        when (currentState) {
             ConversationState.IDLE -> {
                 // IDLE → LISTENING
+                Log.i(TAG, "📢 Transition: IDLE → LISTENING (user started speaking)")
                 stateMachine.handleEvent(ConversationEvent.VadStart)
                 startUserTurn(timestamp)
 
@@ -276,6 +287,7 @@ class ConversationManager(
             }
             ConversationState.MODEL_SPEAKING -> {
                 // MODEL_SPEAKING → INTERRUPTING
+                Log.i(TAG, "📢 Transition: MODEL_SPEAKING → INTERRUPTING (user interrupted)")
                 stateMachine.handleEvent(ConversationEvent.UserInterrupt)
 
                 // 取消模型回应
@@ -298,6 +310,7 @@ class ConversationManager(
             }
             else -> {
                 // 其他状态不处理
+                Log.w(TAG, "⚠️ Ignoring speech start in state: $currentState")
             }
         }
     }
@@ -306,18 +319,24 @@ class ConversationManager(
      * 处理语音停止
      */
     private suspend fun handleSpeechEnd(timestamp: Long) {
-        when (_conversationState.value) {
+        val currentState = _conversationState.value
+        Log.d(TAG, "🔄 handleSpeechEnd in state: $currentState")
+
+        when (currentState) {
             ConversationState.LISTENING -> {
                 // LISTENING → MODEL_SPEAKING (等待模型回应)
+                Log.i(TAG, "📢 Transition: LISTENING → MODEL_SPEAKING (requesting response)")
                 stateMachine.handleEvent(ConversationEvent.VadEnd)
 
                 // 提交音频缓冲
+                Log.d(TAG, "📤 Committing audio buffer")
                 realtimeWebSocket.send(ClientMessage.InputAudioBufferCommit())
 
                 // 发送图像（如果有）
                 sendCapturedImages()
 
                 // 请求模型回应
+                Log.d(TAG, "📤 Requesting model response")
                 realtimeWebSocket.send(ClientMessage.ResponseCreate())
 
                 // 结束用户 turn
@@ -328,6 +347,7 @@ class ConversationManager(
             }
             else -> {
                 // 其他状态不处理
+                Log.w(TAG, "⚠️ Ignoring speech end in state: $currentState")
             }
         }
     }

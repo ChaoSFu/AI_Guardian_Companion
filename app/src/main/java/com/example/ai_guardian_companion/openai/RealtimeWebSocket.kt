@@ -92,7 +92,12 @@ class RealtimeWebSocket(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "📨 Received: ${text.take(200)}...")
+                // 对于短消息显示全部，长消息截断
+                if (text.length <= 500) {
+                    Log.d(TAG, "📨 Received: $text")
+                } else {
+                    Log.d(TAG, "📨 Received: ${text.take(200)}... (${text.length} chars total)")
+                }
                 scope.launch {
                     handleIncomingMessage(text)
                 }
@@ -152,7 +157,13 @@ class RealtimeWebSocket(
 
         return try {
             val json = gson.toJson(message)
-            Log.d(TAG, "📤 Sending: ${message.type}")
+            // 对于音频数据，只记录类型；其他消息记录完整内容
+            if (message.type == "input_audio_buffer.append") {
+                Log.d(TAG, "📤 Sending: ${message.type} (audio data)")
+            } else {
+                Log.d(TAG, "📤 Sending: ${message.type}")
+                Log.v(TAG, "📤 Full message: $json")
+            }
             ws.send(json)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message", e)
@@ -166,73 +177,93 @@ class RealtimeWebSocket(
     private suspend fun handleIncomingMessage(text: String) {
         try {
             val jsonObject = JsonParser.parseString(text).asJsonObject
-            val type = jsonObject.get("type")?.asString ?: return
+            val type = jsonObject.get("type")?.asString
+
+            if (type == null) {
+                Log.w(TAG, "⚠️ Message missing 'type' field: $text")
+                return
+            }
+
+            Log.d(TAG, "🔔 Processing message type: $type")
 
             when (type) {
                 // Session events
                 "session.created" -> {
                     val message = gson.fromJson(text, ServerMessage.SessionCreated::class.java)
+                    Log.i(TAG, "✅ Session created")
                     callback.onSessionCreated(message)
                 }
                 "session.updated" -> {
                     val message = gson.fromJson(text, ServerMessage.SessionUpdated::class.java)
+                    Log.i(TAG, "✅ Session updated")
                     callback.onSessionUpdated(message)
                 }
 
                 // Conversation events
                 "conversation.item.created" -> {
                     val message = gson.fromJson(text, ServerMessage.ConversationItemCreated::class.java)
+                    Log.i(TAG, "✅ Conversation item created")
                     callback.onConversationItemCreated(message)
                 }
 
                 // Input audio events
                 "input_audio_buffer.speech_started" -> {
                     val message = gson.fromJson(text, ServerMessage.InputAudioBufferSpeechStarted::class.java)
+                    Log.i(TAG, "🎤 Speech STARTED detected by server")
                     callback.onSpeechStarted(message)
                 }
                 "input_audio_buffer.speech_stopped" -> {
                     val message = gson.fromJson(text, ServerMessage.InputAudioBufferSpeechStopped::class.java)
+                    Log.i(TAG, "🎤 Speech STOPPED detected by server")
                     callback.onSpeechStopped(message)
                 }
 
                 // Response audio events
                 "response.audio.delta" -> {
                     val message = gson.fromJson(text, ServerMessage.ResponseAudioDelta::class.java)
+                    Log.v(TAG, "🔊 Audio delta received")
                     callback.onAudioDelta(message)
                 }
                 "response.audio.done" -> {
                     val message = gson.fromJson(text, ServerMessage.ResponseAudioDone::class.java)
+                    Log.i(TAG, "🔊 Audio done")
                     callback.onAudioDone(message)
                 }
 
                 // Response text events
                 "response.text.delta" -> {
                     val message = gson.fromJson(text, ServerMessage.ResponseTextDelta::class.java)
+                    Log.v(TAG, "📝 Text delta: ${message.delta}")
                     callback.onTextDelta(message)
                 }
                 "response.text.done" -> {
                     val message = gson.fromJson(text, ServerMessage.ResponseTextDone::class.java)
+                    Log.i(TAG, "📝 Text done: ${message.text}")
                     callback.onTextDone(message)
                 }
 
                 // Response done
                 "response.done" -> {
                     val message = gson.fromJson(text, ServerMessage.ResponseDone::class.java)
+                    Log.i(TAG, "✅ Response done")
                     callback.onResponseDone(message)
                 }
 
                 // Error
                 "error" -> {
                     val message = gson.fromJson(text, ServerMessage.Error::class.java)
+                    Log.e(TAG, "❌ Server error: ${message.error.message}")
                     callback.onServerError(message)
                 }
 
                 else -> {
-                    Log.d(TAG, "Unhandled message type: $type")
+                    Log.w(TAG, "⚠️ Unhandled message type: $type")
+                    Log.v(TAG, "⚠️ Full unhandled message: $text")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse message", e)
+            Log.e(TAG, "❌ Failed to parse message: ${e.message}", e)
+            Log.e(TAG, "❌ Problematic message: $text")
             callback.onError(e)
         }
     }
