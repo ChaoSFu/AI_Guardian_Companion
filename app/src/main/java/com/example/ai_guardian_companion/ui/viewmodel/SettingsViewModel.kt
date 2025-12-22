@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -194,6 +195,203 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
+     * 测试 Realtime API
+     */
+    fun testRealtimeApi() {
+        val apiKey = _uiState.value.apiKey.trim()
+
+        if (apiKey.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    realtimeTestResult = TestResult.FAILED,
+                    realtimeTestMessage = "请先输入 API Key"
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isTestingRealtime = true,
+                    realtimeTestResult = null,
+                    realtimeTestMessage = null
+                )
+            }
+
+            try {
+                // 导入必要的类
+                val callback = object : com.example.ai_guardian_companion.openai.RealtimeWebSocket.RealtimeCallback {
+                    private var receivedResponse = false
+
+                    override fun onConnected() {
+                        Log.d(TAG, "✅ Realtime WebSocket connected")
+                    }
+
+                    override fun onDisconnected(code: Int, reason: String) {
+                        Log.d(TAG, "Realtime WebSocket disconnected: $code - $reason")
+                    }
+
+                    override fun onSessionCreated(message: com.example.ai_guardian_companion.openai.ServerMessage.SessionCreated) {
+                        Log.d(TAG, "✅ Realtime session created")
+                        viewModelScope.launch {
+                            // 会话创建成功，发送文本消息测试
+                            sendTestMessage()
+                        }
+                    }
+
+                    override fun onSessionUpdated(message: com.example.ai_guardian_companion.openai.ServerMessage.SessionUpdated) {
+                        Log.d(TAG, "✅ Realtime session updated")
+                    }
+
+                    override fun onConversationItemCreated(message: com.example.ai_guardian_companion.openai.ServerMessage.ConversationItemCreated) {
+                        Log.d(TAG, "✅ Conversation item created")
+                    }
+
+                    override fun onSpeechStarted(message: com.example.ai_guardian_companion.openai.ServerMessage.InputAudioBufferSpeechStarted) {}
+
+                    override fun onSpeechStopped(message: com.example.ai_guardian_companion.openai.ServerMessage.InputAudioBufferSpeechStopped) {}
+
+                    override fun onAudioDelta(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseAudioDelta) {}
+
+                    override fun onAudioDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseAudioDone) {}
+
+                    override fun onTextDelta(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseTextDelta) {
+                        if (!receivedResponse) {
+                            receivedResponse = true
+                            Log.d(TAG, "✅ Received text response: ${message.delta}")
+                            _uiState.update {
+                                it.copy(
+                                    isTestingRealtime = false,
+                                    realtimeTestResult = TestResult.SUCCESS,
+                                    realtimeTestMessage = "Realtime API 测试成功！收到模型回复: ${message.delta}"
+                                )
+                            }
+                            // 断开连接
+                            testWebSocket?.disconnect()
+                        }
+                    }
+
+                    override fun onTextDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseTextDone) {}
+
+                    override fun onResponseDone(message: com.example.ai_guardian_companion.openai.ServerMessage.ResponseDone) {}
+
+                    override fun onServerError(message: com.example.ai_guardian_companion.openai.ServerMessage.Error) {
+                        Log.e(TAG, "❌ Realtime server error: ${message.error.message}")
+                        _uiState.update {
+                            it.copy(
+                                isTestingRealtime = false,
+                                realtimeTestResult = TestResult.FAILED,
+                                realtimeTestMessage = "服务器错误: ${message.error.message}"
+                            )
+                        }
+                        testWebSocket?.disconnect()
+                    }
+
+                    override fun onError(error: Throwable) {
+                        Log.e(TAG, "❌ Realtime client error", error)
+                        _uiState.update {
+                            it.copy(
+                                isTestingRealtime = false,
+                                realtimeTestResult = TestResult.FAILED,
+                                realtimeTestMessage = "连接失败: ${error.message}"
+                            )
+                        }
+                        testWebSocket?.disconnect()
+                    }
+
+                    override fun onMaxReconnectAttemptsReached() {}
+                }
+
+                // 创建 WebSocket 连接
+                testWebSocket = com.example.ai_guardian_companion.openai.RealtimeWebSocket(apiKey, callback)
+                testWebSocket?.connect()
+
+                // 设置超时
+                delay(15000) // 15秒超时
+                if (_uiState.value.realtimeTestResult == null) {
+                    _uiState.update {
+                        it.copy(
+                            isTestingRealtime = false,
+                            realtimeTestResult = TestResult.FAILED,
+                            realtimeTestMessage = "测试超时：15秒内未收到响应"
+                        )
+                    }
+                    testWebSocket?.disconnect()
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isTestingRealtime = false,
+                        realtimeTestResult = TestResult.FAILED,
+                        realtimeTestMessage = "测试失败: ${e.message}"
+                    )
+                }
+                testWebSocket?.disconnect()
+                Log.e(TAG, "Realtime API test error", e)
+            }
+        }
+    }
+
+    private var testWebSocket: com.example.ai_guardian_companion.openai.RealtimeWebSocket? = null
+
+    /**
+     * 发送测试消息
+     */
+    private fun sendTestMessage() {
+        viewModelScope.launch {
+            try {
+                delay(500) // 等待会话完全建立
+
+                // 发送文本消息
+                val textMessage = com.example.ai_guardian_companion.openai.ClientMessage.ConversationItemCreate(
+                    item = com.example.ai_guardian_companion.openai.ClientMessage.ConversationItemCreate.Item(
+                        role = "user",
+                        content = listOf(
+                            com.example.ai_guardian_companion.openai.ClientMessage.ConversationItemCreate.Content(
+                                type = "input_text",
+                                text = "你好，请用一句话回复我，证明你能正常工作。"
+                            )
+                        )
+                    )
+                )
+
+                Log.d(TAG, "📤 Sending test text message")
+                testWebSocket?.send(textMessage)
+
+                // 请求响应
+                delay(200)
+                val responseCreate = com.example.ai_guardian_companion.openai.ClientMessage.ResponseCreate()
+                testWebSocket?.send(responseCreate)
+
+                Log.d(TAG, "📤 Requesting response")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send test message", e)
+                _uiState.update {
+                    it.copy(
+                        isTestingRealtime = false,
+                        realtimeTestResult = TestResult.FAILED,
+                        realtimeTestMessage = "发送测试消息失败: ${e.message}"
+                    )
+                }
+                testWebSocket?.disconnect()
+            }
+        }
+    }
+
+    /**
+     * 清除 Realtime 测试结果
+     */
+    fun clearRealtimeTestResult() {
+        _uiState.update {
+            it.copy(
+                realtimeTestResult = null,
+                realtimeTestMessage = null
+            )
+        }
+    }
+
+    /**
      * UI 状态
      */
     data class SettingsUiState(
@@ -202,6 +400,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val isTesting: Boolean = false,
         val testResult: TestResult? = null,
         val testMessage: String? = null,
+        val isTestingRealtime: Boolean = false,
+        val realtimeTestResult: TestResult? = null,
+        val realtimeTestMessage: String? = null,
         val saveSuccess: Boolean = false,
         val errorMessage: String? = null
     )
@@ -212,5 +413,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     enum class TestResult {
         SUCCESS,
         FAILED
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        testWebSocket?.disconnect()
+        testWebSocket?.release()
     }
 }

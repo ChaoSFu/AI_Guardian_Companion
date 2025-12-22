@@ -163,7 +163,7 @@ fun SettingsScreen(
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("测试连接")
+                    Text("测试基础连接")
                 }
             }
 
@@ -199,6 +199,77 @@ fun SettingsScreen(
 
                         Text(
                             text = uiState.testMessage ?: "",
+                            fontSize = 14.sp,
+                            color = when (result) {
+                                SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
+                                SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Realtime API 测试按钮
+            Button(
+                onClick = { viewModel.testRealtimeApi() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isTestingRealtime && uiState.apiKey.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary
+                )
+            ) {
+                if (uiState.isTestingRealtime) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("测试中...")
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("测试 Realtime API（完整测试）")
+                }
+            }
+
+            // Realtime API 测试结果
+            uiState.realtimeTestResult?.let { result ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = when (result) {
+                        SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50).copy(alpha = 0.1f)
+                        SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336).copy(alpha = 0.1f)
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = when (result) {
+                                SettingsViewModel.TestResult.SUCCESS -> Icons.Default.Check
+                                SettingsViewModel.TestResult.FAILED -> Icons.Default.Close
+                            },
+                            contentDescription = null,
+                            tint = when (result) {
+                                SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
+                                SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Text(
+                            text = uiState.realtimeTestMessage ?: "",
                             fontSize = 14.sp,
                             color = when (result) {
                                 SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
