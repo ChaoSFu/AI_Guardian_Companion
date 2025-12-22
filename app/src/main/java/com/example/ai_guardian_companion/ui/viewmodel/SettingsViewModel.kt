@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai_guardian_companion.storage.SettingsDataStore
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -109,18 +111,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             }
 
             try {
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .build()
+                // 在 IO 线程执行网络请求
+                val response = withContext(Dispatchers.IO) {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(10, TimeUnit.SECONDS)
+                        .readTimeout(10, TimeUnit.SECONDS)
+                        .build()
 
-                val request = Request.Builder()
-                    .url(OPENAI_API_URL)
-                    .header("Authorization", "Bearer $apiKey")
-                    .get()
-                    .build()
+                    val request = Request.Builder()
+                        .url(OPENAI_API_URL)
+                        .header("Authorization", "Bearer $apiKey")
+                        .get()
+                        .build()
 
-                val response = client.newCall(request).execute()
+                    client.newCall(request).execute()
+                }
 
                 if (response.isSuccessful) {
                     val body = response.body?.string()
