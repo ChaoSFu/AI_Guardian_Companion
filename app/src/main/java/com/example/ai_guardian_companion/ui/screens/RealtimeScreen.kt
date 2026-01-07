@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,9 +45,28 @@ fun RealtimeScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
 
+    // 退出确认对话框状态
+    var showExitDialog by remember { mutableStateOf(false) }
+
     // 初始化 ViewModel
     LaunchedEffect(Unit) {
         viewModel.initialize(lifecycleOwner, apiKey)
+    }
+
+    // 处理系统返回按钮和导航返回
+    val handleBack = {
+        if (uiState.isSessionActive) {
+            // 会话进行中，显示确认对话框
+            showExitDialog = true
+        } else {
+            // 没有会话，直接返回
+            onNavigateBack()
+        }
+    }
+
+    // 拦截系统返回按钮
+    BackHandler(enabled = true) {
+        handleBack()
     }
 
     Scaffold(
@@ -59,7 +79,7 @@ fun RealtimeScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = { handleBack() }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "返回"
@@ -132,6 +152,31 @@ fun RealtimeScreen(
                 )
             }
         }
+    }
+
+    // 退出确认对话框
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("退出会话") },
+            text = { Text("会话正在进行中，确定要退出吗？退出后会话将自动结束。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExitDialog = false
+                        viewModel.endSession()
+                        onNavigateBack()
+                    }
+                ) {
+                    Text("确定", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 

@@ -249,6 +249,13 @@ class RealtimeWebSocket(
                     callback.onResponseDone(message)
                 }
 
+                // Input audio transcription
+                "conversation.item.input_audio_transcription.completed" -> {
+                    val message = gson.fromJson(text, ServerMessage.InputAudioTranscriptionCompleted::class.java)
+                    Log.i(TAG, "📝 User transcription: ${message.transcript}")
+                    callback.onInputAudioTranscriptionCompleted(message)
+                }
+
                 // Error
                 "error" -> {
                     val message = gson.fromJson(text, ServerMessage.Error::class.java)
@@ -350,6 +357,11 @@ class RealtimeWebSocket(
          * 回应完成
          */
         fun onResponseDone(message: ServerMessage.ResponseDone)
+
+        /**
+         * 用户语音转录完成
+         */
+        fun onInputAudioTranscriptionCompleted(message: ServerMessage.InputAudioTranscriptionCompleted)
 
         /**
          * 服务器错误

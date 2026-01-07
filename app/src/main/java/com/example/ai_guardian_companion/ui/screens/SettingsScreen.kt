@@ -1,5 +1,9 @@
 package com.example.ai_guardian_companion.ui.screens
 
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,6 +16,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -32,6 +39,24 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showApiKey by remember { mutableStateOf(false) }
+    var selectedImageBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val context = LocalContext.current
+
+    // 图片选择器
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                selectedImageBitmap = bitmap
+                viewModel.clearImageTestResult()
+            } catch (e: Exception) {
+                android.util.Log.e("SettingsScreen", "Failed to load image", e)
+            }
+        }
+    }
 
     // 显示保存成功提示
     LaunchedEffect(uiState.saveSuccess) {
@@ -276,6 +301,146 @@ fun SettingsScreen(
                                 SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
                             }
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 图片识别测试
+            Text(
+                text = "图片识别测试",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 选择图片按钮
+            OutlinedButton(
+                onClick = { imagePickerLauncher.launch("image/*") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (selectedImageBitmap != null) "更换图片" else "选择图片")
+            }
+
+            // 图片预览
+            selectedImageBitmap?.let { bitmap ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    tonalElevation = 2.dp
+                ) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "预览图片",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
+
+            // 测试按钮
+            if (selectedImageBitmap != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        selectedImageBitmap?.let { bitmap ->
+                            viewModel.testImageRecognition(bitmap)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !uiState.isTestingImage && uiState.apiKey.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2196F3)
+                    )
+                ) {
+                    if (uiState.isTestingImage) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("测试中...")
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("测试图片识别")
+                    }
+                }
+            }
+
+            // 图片测试结果
+            uiState.imageTestResult?.let { result ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = when (result) {
+                        SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50).copy(alpha = 0.1f)
+                        SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336).copy(alpha = 0.1f)
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = when (result) {
+                                    SettingsViewModel.TestResult.SUCCESS -> Icons.Default.Check
+                                    SettingsViewModel.TestResult.FAILED -> Icons.Default.Close
+                                },
+                                contentDescription = null,
+                                tint = when (result) {
+                                    SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
+                                    SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Text(
+                                text = when (result) {
+                                    SettingsViewModel.TestResult.SUCCESS -> "识别成功"
+                                    SettingsViewModel.TestResult.FAILED -> "识别失败"
+                                },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (result) {
+                                    SettingsViewModel.TestResult.SUCCESS -> Color(0xFF4CAF50)
+                                    SettingsViewModel.TestResult.FAILED -> Color(0xFFF44336)
+                                }
+                            )
+                        }
+
+                        uiState.imageTestMessage?.let { message ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = message,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }

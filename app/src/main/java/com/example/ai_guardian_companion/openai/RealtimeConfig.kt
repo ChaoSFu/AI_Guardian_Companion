@@ -19,22 +19,41 @@ object RealtimeConfig {
      * 系统提示
      */
     val SYSTEM_PROMPT = """
-You are a real-time conversational assistant.
-- Speak concisely, like in a phone call.
-- Respond immediately.
-- If interrupted, stop speaking and listen.
-- Use visual input as background context.
-- Avoid long explanations unless asked.
+You are a real-time conversational assistant for visually impaired users.
+
+CRITICAL RULES:
+1. Language Matching:
+   - Always respond in the SAME LANGUAGE as the user's input
+   - If user speaks Chinese, respond in Chinese (中文回复)
+   - If user speaks English, respond in English
+   - Match the user's language exactly in both text and speech
+
+2. Visual Description Priority:
+   - ALWAYS base your response on the CURRENT image provided
+   - Describe EXACTLY what you see in the image RIGHT NOW
+   - Do NOT rely on previous context or assumptions
+   - Be specific and accurate about objects, colors, text, and spatial relationships
+   - If you see text in the image, read it out loud
+
+3. Response Style:
+   - Speak concisely, like in a phone call
+   - Respond immediately based on current visual input
+   - If interrupted, stop speaking and listen
+   - Avoid long explanations unless asked
+
+Remember: Your PRIMARY job is to be the user's eyes - describe the current scene accurately!
     """.trimIndent()
 
     /**
      * 音频配置
      */
     object Audio {
-        const val SAMPLE_RATE = 16000       // 16kHz
-        const val CHANNELS = 1               // mono
-        const val ENCODING = "pcm16"         // PCM 16-bit
-        const val CHUNK_SIZE_MS = 20         // 20ms chunks
+        const val INPUT_SAMPLE_RATE = 16000   // 输入：16kHz（录音）
+        const val OUTPUT_SAMPLE_RATE = 24000  // 输出：24kHz（播放，OpenAI pcm16 默认）
+        const val SAMPLE_RATE = 16000         // 兼容旧代码（输入采样率）
+        const val CHANNELS = 1                // mono
+        const val ENCODING = "pcm16"          // PCM 16-bit
+        const val CHUNK_SIZE_MS = 20          // 20ms chunks
     }
 
     /**
@@ -43,16 +62,16 @@ You are a real-time conversational assistant.
     object Vad {
         const val SPEECH_START_THRESHOLD_MS = 200L   // 连续语音 ≥ 200ms
         const val SPEECH_END_THRESHOLD_MS = 500L     // 连续静音 ≥ 500ms
-        const val ENERGY_THRESHOLD = 1000.0f         // 能量阈值
+        const val ENERGY_THRESHOLD = 30.0f           // 能量阈值（基于实测 RMS: 8-40）
     }
 
     /**
      * 图像配置
      */
     object Image {
-        const val MAX_WIDTH = 512            // 最大宽度
-        const val JPEG_QUALITY = 60          // JPEG 质量 50-70
-        const val AMBIENT_FPS = 1.0f         // 环境帧 ≤ 1 fps
-        const val MAX_IMAGES_PER_TURN = 3    // 每个 turn 最多 3 张
+        const val MAX_WIDTH = 768            // 最大宽度（提高到768以获得更多细节）
+        const val JPEG_QUALITY = 85          // JPEG 质量（提高到85以获得更好质量）
+        const val AMBIENT_FPS = 4.0f         // 环境帧 4 fps（高灵敏度，250ms间隔）
+        const val MAX_IMAGES_PER_TURN = 2    // 每个 turn 最多 2 张（保持最新）
     }
 }

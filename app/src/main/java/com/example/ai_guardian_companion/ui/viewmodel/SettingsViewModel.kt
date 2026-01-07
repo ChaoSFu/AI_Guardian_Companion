@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -292,6 +293,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
 
+                    override fun onInputAudioTranscriptionCompleted(message: com.example.ai_guardian_companion.openai.ServerMessage.InputAudioTranscriptionCompleted) {
+                        // Not used in API test
+                    }
+
                     override fun onServerError(message: com.example.ai_guardian_companion.openai.ServerMessage.Error) {
                         Log.e(TAG, "❌ Realtime server error: ${message.error.message}")
                         _uiState.update {
@@ -408,6 +413,142 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
+     * 测试图片识别功能（使用 Chat Completions API with Vision）
+     */
+    fun testImageRecognition(bitmap: android.graphics.Bitmap) {
+        if (_uiState.value.apiKey.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    imageTestResult = TestResult.FAILED,
+                    imageTestMessage = "请先设置 API Key"
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isTestingImage = true, imageTestResult = null, imageTestMessage = null) }
+            Log.d(TAG, "Starting image recognition test using Chat Completions API...")
+
+            try {
+                // 处理图片
+                val imageProcessor = com.example.ai_guardian_companion.camera.ImageProcessor
+                val processedImageResult = imageProcessor.processImage(bitmap)
+                if (processedImageResult.isFailure) {
+                    throw Exception("图片处理失败")
+                }
+
+                val processedImage = processedImageResult.getOrNull()!!
+                Log.d(TAG, "Image processed: ${processedImage.width}x${processedImage.height}, ${processedImage.sizeBytes} bytes")
+
+                // 构建请求 JSON
+                val requestJson = """
+                {
+                  "model": "gpt-4o",
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "请详细描述这张图片的内容，包括物体、颜色、文字等所有细节。"
+                        },
+                        {
+                          "type": "image_url",
+                          "image_url": {
+                            "url": "${processedImage.dataUrl}"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "max_tokens": 500
+                }
+                """.trimIndent()
+
+                // 创建 HTTP 客户端
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                // 创建请求
+                val requestBody = requestJson.toRequestBody("application/json".toMediaTypeOrNull())
+
+                val request = okhttp3.Request.Builder()
+                    .url("https://api.openai.com/v1/chat/completions")
+                    .addHeader("Authorization", "Bearer ${_uiState.value.apiKey}")
+                    .addHeader("Content-Type", "application/json")
+                    .post(requestBody)
+                    .build()
+
+                Log.d(TAG, "📤 Sending image to Chat Completions API...")
+
+                // 发送请求
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string()
+
+                if (!response.isSuccessful || responseBody == null) {
+                    val errorMsg = responseBody ?: "No response body"
+                    Log.e(TAG, "❌ API request failed: ${response.code} - $errorMsg")
+                    throw Exception("API 请求失败: ${response.code}")
+                }
+
+                Log.d(TAG, "✅ Received response from API")
+                Log.v(TAG, "Response: $responseBody")
+
+                // 解析响应
+                val jsonObject = com.google.gson.JsonParser.parseString(responseBody).asJsonObject
+                val choices = jsonObject.getAsJsonArray("choices")
+                if (choices == null || choices.size() == 0) {
+                    throw Exception("响应中没有 choices")
+                }
+
+                val firstChoice = choices.get(0).asJsonObject
+                val message = firstChoice.getAsJsonObject("message")
+                val content = message.get("content")?.asString
+
+                if (content.isNullOrEmpty()) {
+                    throw Exception("响应中没有内容")
+                }
+
+                Log.d(TAG, "✅ AI Description: $content")
+
+                // 更新 UI
+                _uiState.update {
+                    it.copy(
+                        isTestingImage = false,
+                        imageTestResult = TestResult.SUCCESS,
+                        imageTestMessage = "AI描述: $content"
+                    )
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Image test failed", e)
+                _uiState.update {
+                    it.copy(
+                        isTestingImage = false,
+                        imageTestResult = TestResult.FAILED,
+                        imageTestMessage = "测试失败: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 清除图片测试结果
+     */
+    fun clearImageTestResult() {
+        _uiState.update {
+            it.copy(
+                imageTestResult = null,
+                imageTestMessage = null
+            )
+        }
+    }
+
+    /**
      * UI 状态
      */
     data class SettingsUiState(
@@ -419,6 +560,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val isTestingRealtime: Boolean = false,
         val realtimeTestResult: TestResult? = null,
         val realtimeTestMessage: String? = null,
+        val isTestingImage: Boolean = false,
+        val imageTestResult: TestResult? = null,
+        val imageTestMessage: String? = null,
         val saveSuccess: Boolean = false,
         val errorMessage: String? = null
     )

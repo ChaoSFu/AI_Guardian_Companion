@@ -23,7 +23,7 @@ class AudioOutputManager {
         private const val TAG = "AudioOutputManager"
 
         // Audio config
-        private const val SAMPLE_RATE = RealtimeConfig.Audio.SAMPLE_RATE  // 16000 Hz
+        private const val SAMPLE_RATE = RealtimeConfig.Audio.OUTPUT_SAMPLE_RATE  // 24000 Hz (OpenAI pcm16 默认)
         private const val CHANNELS = AudioFormat.CHANNEL_OUT_MONO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
     }
@@ -51,7 +51,7 @@ class AudioOutputManager {
             audioTrack = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setUsage(AudioAttributes.USAGE_ASSISTANT)  // 语音助手模式，使用扬声器
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -180,21 +180,32 @@ class AudioOutputManager {
         }
 
         audioQueue.offer(audioData)
+
+        // 如果 AudioTrack 被暂停（比如被打断后），收到新音频时恢复播放
+        if (isPlaying && audioTrack?.playState == AudioTrack.PLAYSTATE_PAUSED) {
+            audioTrack?.play()
+            Log.d(TAG, "Resuming playback after receiving new audio")
+        }
+
         Log.d(TAG, "Audio chunk queued: ${audioData.size} bytes, queue size: ${audioQueue.size}")
     }
 
     /**
      * 清空音频队列（用于 barge-in）
      */
-    fun flush() {
+    /**
+     * 清空音频队列和缓冲区
+     * @param resume 是否在清空后恢复播放（默认 true）
+     */
+    fun flush(resume: Boolean = true) {
         audioQueue.clear()
         try {
             audioTrack?.pause()
             audioTrack?.flush()
-            if (isPlaying && !isPaused) {
+            if (resume && isPlaying && !isPaused) {
                 audioTrack?.play()
             }
-            Log.d(TAG, "Audio queue flushed")
+            Log.d(TAG, "Audio queue flushed (resume=$resume)")
         } catch (e: Exception) {
             Log.e(TAG, "Error flushing audio", e)
         }

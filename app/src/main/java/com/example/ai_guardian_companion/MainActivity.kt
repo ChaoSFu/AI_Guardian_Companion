@@ -93,7 +93,7 @@ fun AppNavigation() {
                 RealtimeScreen(
                     apiKey = key,
                     onNavigateBack = {
-                        navController.popBackStack()
+                        navController.popBackStack("home", inclusive = false)
                     }
                 )
             } ?: run {

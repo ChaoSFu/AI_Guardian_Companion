@@ -144,7 +144,7 @@ sealed class ClientMessage {
 
         data class Content(
             @SerializedName("type")
-            val type: String, // "input_text" | "input_audio" | "image"
+            val type: String, // "input_text" | "input_audio" | "input_image"
 
             @SerializedName("text")
             val text: String? = null,
@@ -447,4 +447,21 @@ sealed class ServerMessage {
             val outputTokens: Int
         )
     }
+
+    /**
+     * conversation.item.input_audio_transcription.completed - 用户语音转录完成
+     */
+    data class InputAudioTranscriptionCompleted(
+        @SerializedName("type")
+        override val type: String,
+
+        @SerializedName("item_id")
+        val itemId: String,
+
+        @SerializedName("content_index")
+        val contentIndex: Int,
+
+        @SerializedName("transcript")
+        val transcript: String
+    ) : ServerMessage()
 }

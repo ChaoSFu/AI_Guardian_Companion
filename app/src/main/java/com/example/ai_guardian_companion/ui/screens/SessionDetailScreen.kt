@@ -1,8 +1,10 @@
 package com.example.ai_guardian_companion.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,13 +13,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ai_guardian_companion.storage.entity.TurnEntity
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.ai_guardian_companion.storage.FileManager
 import com.example.ai_guardian_companion.ui.viewmodel.HistoryViewModel
+import com.example.ai_guardian_companion.ui.viewmodel.TurnWithImages
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -37,7 +46,9 @@ fun SessionDetailScreen(
     }
 
     val session by viewModel.selectedSession.collectAsState()
-    val turns by viewModel.sessionTurns.collectAsState()
+    val turnsWithImages by viewModel.sessionTurnsWithImages.collectAsState()
+    val context = LocalContext.current
+    val fileManager = remember { FileManager(context) }
 
     Scaffold(
         topBar = {
@@ -126,7 +137,7 @@ fun SessionDetailScreen(
             }
 
             // 对话列表
-            if (turns.isEmpty()) {
+            if (turnsWithImages.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -142,8 +153,12 @@ fun SessionDetailScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(turns, key = { it.turnId }) { turn ->
-                        TurnItem(turn = turn)
+                    items(turnsWithImages, key = { it.turn.turnId }) { turnWithImages ->
+                        TurnItemWithMedia(
+                            turnWithImages = turnWithImages,
+                            sessionId = sessionId,
+                            fileManager = fileManager
+                        )
                     }
                 }
             }
@@ -182,101 +197,6 @@ fun InfoItem(
 }
 
 /**
- * 对话轮次项
- */
-@Composable
-fun TurnItem(turn: TurnEntity) {
-    val isUser = turn.speaker == "user"
-    val speakerIcon = if (isUser) Icons.Default.Person else Icons.Default.Star
-    val speakerColor = if (isUser) MaterialTheme.colorScheme.primary else Color(0xFF4CAF50)
-    val speakerLabel = if (isUser) "用户" else "AI"
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            // 时间标题
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = speakerIcon,
-                        contentDescription = speakerLabel,
-                        modifier = Modifier.size(16.dp),
-                        tint = speakerColor
-                    )
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Text(
-                        text = speakerLabel,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = speakerColor
-                    )
-                }
-
-                Text(
-                    text = formatTime(turn.startTime),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-
-            // 文本内容
-            turn.text?.let { text ->
-                if (text.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = text,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            // 时长和状态
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (turn.duration > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "时长: ${turn.duration / 1000}秒",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    )
-                }
-
-                if (turn.interrupted) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "被打断",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
  * 格式化时间
  */
 private fun formatTime(timestamp: Long): String {
@@ -296,5 +216,200 @@ private fun formatDuration(seconds: Long): String {
         hours > 0 -> String.format("%d:%02d:%02d", hours, minutes, secs)
         minutes > 0 -> String.format("%d:%02d", minutes, secs)
         else -> "${secs}秒"
+    }
+}
+
+/**
+ * 带媒体的对话轮次项（包含图片和音频）
+ */
+@Composable
+fun TurnItemWithMedia(
+    turnWithImages: TurnWithImages,
+    sessionId: String,
+    fileManager: FileManager
+) {
+    val turn = turnWithImages.turn
+    val images = turnWithImages.images
+    val isUser = turn.speaker == "user"
+    val speakerIcon = if (isUser) Icons.Default.Person else Icons.Default.Star
+    val speakerColor = if (isUser) MaterialTheme.colorScheme.primary else Color(0xFF4CAF50)
+    val speakerLabel = if (isUser) "用户" else "AI"
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // 头部：说话人和时间
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = speakerIcon,
+                        contentDescription = speakerLabel,
+                        modifier = Modifier.size(16.dp),
+                        tint = speakerColor
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = speakerLabel,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = speakerColor
+                    )
+                }
+                Text(
+                    text = formatTime(turn.startTime),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+
+            // 图片（如果有）
+            if (images.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(images, key = { it.imageId }) { image ->
+                        val imageFile = fileManager.getAbsolutePath(sessionId, image.imagePath)
+                        ImageThumbnail(
+                            imageFile = imageFile,
+                            role = image.role
+                        )
+                    }
+                }
+            }
+
+            // 音频播放按钮（如果有）
+            turn.audioPath?.let { audioPath ->
+                Spacer(modifier = Modifier.height(12.dp))
+                val audioFile = fileManager.getAbsolutePath(sessionId, audioPath)
+                AudioPlayButton(
+                    audioFile = audioFile,
+                    speaker = speakerLabel
+                )
+            }
+
+            // 文本内容
+            turn.text?.let { text ->
+                if (text.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = text,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            // 底部信息：时长和状态
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (turn.duration > 0) {
+                    Text(
+                        text = "时长: ${turn.duration / 1000}秒",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+                if (turn.interrupted) {
+                    Text(
+                        text = "被打断",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 图片缩略图
+ */
+@Composable
+fun ImageThumbnail(
+    imageFile: File,
+    role: String
+) {
+    val roleLabel = if (role == "ambient") "环境帧" else "锚点帧"
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(imageFile)
+                .crossfade(true)
+                .build(),
+            contentDescription = roleLabel,
+            modifier = Modifier
+                .size(120.dp, 90.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = roleLabel,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        )
+    }
+}
+
+/**
+ * 音频播放按钮
+ */
+@Composable
+fun AudioPlayButton(
+    audioFile: File,
+    speaker: String
+) {
+    var isPlaying by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable {
+                    // TODO: 实现音频播放
+                    isPlaying = !isPlaying
+                }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.Clear else Icons.Default.PlayArrow,
+                contentDescription = if (isPlaying) "停止" else "播放",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (audioFile.exists()) {
+                    "${speaker}音频 (${audioFile.length() / 1024} KB)"
+                } else {
+                    "音频文件不存在"
+                },
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
     }
 }

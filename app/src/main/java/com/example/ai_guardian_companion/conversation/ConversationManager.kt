@@ -77,6 +77,11 @@ class ConversationManager(
     private val userAudioChunks = mutableListOf<ByteArray>()
     private val modelAudioChunks = mutableListOf<ByteArray>()
     private val capturedImages = mutableListOf<ImageProcessor.ProcessedImage>()
+    private var currentModelText: String? = null  // 当前模型回复的文本
+    private var currentUserText: String? = null   // 当前用户语音的转录文本
+
+    // 日志优化：跟踪上次记录的状态，避免重复日志
+    private var lastLoggedStateForAudio: ConversationState? = null
 
     /**
      * 初始化
@@ -171,6 +176,10 @@ class ConversationManager(
             // 开始音频输出
             audioOutputManager.startPlayback()
 
+            // 等待相机完全就绪（避免第一次拍照失败）
+            // 相机初始化通常需要 150-200ms，预留 300ms 确保稳定
+            delay(300)
+
             // 开始环境帧捕获
             cameraManager.startAmbientCapture()
 
@@ -229,6 +238,9 @@ class ConversationManager(
                 // 用户正在说话，缓冲音频
                 userAudioChunks.add(audioChunk.data)
 
+                // 重置日志标志，以便下次状态变化时能记录
+                lastLoggedStateForAudio = null
+
                 // 发送到 WebSocket
                 val base64Audio = AudioProcessor.pcm16ToBase64(audioChunk.data)
                 val message = ClientMessage.InputAudioBufferAppend(audio = base64Audio)
@@ -243,8 +255,12 @@ class ConversationManager(
             }
             else -> {
                 // IDLE or INTERRUPTING: 不发送音频
-                // Log at VERBOSE level to avoid spam
-                Log.v(TAG, "⏸️ Not sending audio in state: ${_conversationState.value}")
+                // 只在状态变化时记录日志，避免日志泛滥
+                val currentState = _conversationState.value
+                if (lastLoggedStateForAudio != currentState) {
+                    Log.v(TAG, "⏸️ Not sending audio in state: $currentState")
+                    lastLoggedStateForAudio = currentState
+                }
             }
         }
     }
@@ -279,6 +295,10 @@ class ConversationManager(
                 stateMachine.handleEvent(ConversationEvent.VadStart)
                 startUserTurn(timestamp)
 
+                // 启动环境帧捕获
+                cameraManager.startAmbientCapture()
+                Log.d(TAG, "▶️ Started ambient capture (${RealtimeConfig.Image.AMBIENT_FPS} fps)")
+
                 // 捕获锚点帧
                 cameraManager.captureAnchorFrame()
 
@@ -293,14 +313,18 @@ class ConversationManager(
                 // 取消模型回应
                 realtimeWebSocket.send(ClientMessage.ResponseCancel())
 
-                // 清空音频输出队列
-                audioOutputManager.flush()
+                // 清空音频输出队列（不恢复播放）
+                audioOutputManager.flush(resume = false)
 
                 // 结束模型 turn（标记为被打断）
                 endCurrentModelTurn(interrupted = true)
 
                 // 开始新的用户 turn
                 startUserTurn(timestamp)
+
+                // 启动环境帧捕获
+                cameraManager.startAmbientCapture()
+                Log.d(TAG, "▶️ Started ambient capture (${RealtimeConfig.Image.AMBIENT_FPS} fps)")
 
                 // 捕获锚点帧
                 cameraManager.captureAnchorFrame()
@@ -332,6 +356,26 @@ class ConversationManager(
                 Log.d(TAG, "📤 Committing audio buffer")
                 realtimeWebSocket.send(ClientMessage.InputAudioBufferCommit())
 
+                // ⚠️ 停止环境帧捕获，防止新的环境帧混入
+                cameraManager.stopAmbientCapture()
+                Log.d(TAG, "🛑 Stopped ambient capture to prevent frame mixing")
+
+                // 清空旧图片，只使用最新的锚点帧
+                capturedImages.clear()
+                Log.d(TAG, "🗑️ Cleared old images, will capture fresh anchor frame")
+
+                // 拍摄最新画面（确保发送的是最新内容）
+                Log.d(TAG, "📸 Capturing final anchor frame")
+                cameraManager.captureAnchorFrame()
+
+                // 等待锚点帧处理完成
+                delay(500)
+
+                Log.d(TAG, "📦 Images ready to send: ${capturedImages.size} images")
+                capturedImages.forEachIndexed { index, img ->
+                    Log.d(TAG, "  📷 Image $index: ${img.width}x${img.height}, ${img.sizeBytes} bytes")
+                }
+
                 // 发送图像（如果有）
                 sendCapturedImages()
 
@@ -356,13 +400,13 @@ class ConversationManager(
      * 处理相机帧
      */
     private suspend fun handleCameraFrame(frame: CameraManager.CapturedFrame) {
-        // 只在用户 turn 期间收集图像
-        if (_conversationState.value != ConversationState.LISTENING) {
-            return
-        }
+        val frameTypeName = if (frame.type == CameraManager.FrameType.AMBIENT) "AMBIENT" else "ANCHOR"
 
-        // 限制每个 turn 最多 3 张图像
-        if (capturedImages.size >= MAX_IMAGES_PER_TURN) {
+        // 环境帧只在 LISTENING 状态收集
+        // 锚点帧在任何状态都处理（因为可能在状态转换后拍摄）
+        if (frame.type == CameraManager.FrameType.AMBIENT &&
+            _conversationState.value != ConversationState.LISTENING) {
+            Log.v(TAG, "⏭️ Skipping AMBIENT frame in state ${_conversationState.value}")
             return
         }
 
@@ -371,6 +415,8 @@ class ConversationManager(
         if (result.isSuccess) {
             val processedImage = result.getOrNull()!!
             capturedImages.add(processedImage)
+
+            Log.d(TAG, "📸 Processed $frameTypeName frame: ${processedImage.width}x${processedImage.height}, ${processedImage.sizeBytes} bytes (queue size: ${capturedImages.size})")
 
             // 保存图像到文件
             val role = when (frame.type) {
@@ -408,6 +454,7 @@ class ConversationManager(
 
         userAudioChunks.clear()
         capturedImages.clear()
+        currentUserText = null  // 清空文本缓存
 
         val turn = TurnEntity(
             sessionId = sessionId,
@@ -426,25 +473,38 @@ class ConversationManager(
         val turnId = currentUserTurnId ?: return@withContext
         val sessionId = currentSessionId ?: return@withContext
 
-        // 合并音频数据
-        val audioData = AudioProcessor.mergeAudioChunks(userAudioChunks)
+        // 合并音频数据（创建副本避免并发修改异常）
+        val audioChunksCopy = userAudioChunks.toList()
+        val audioData = AudioProcessor.mergeAudioChunks(audioChunksCopy)
 
         // 保存音频文件
-        if (audioData.isNotEmpty()) {
-            val audioPath = fileManager.generateAudioPath(sessionId, "user", userAudioIndex++)
+        val audioPath = if (audioData.isNotEmpty()) {
+            val path = fileManager.generateAudioPath(sessionId, "user", userAudioIndex++)
             val wavData = AudioProcessor.pcm16ToWav(audioData)
-            fileManager.saveAudioFile(sessionId, audioPath, wavData)
+            fileManager.saveAudioFile(sessionId, path, wavData)
+            path
+        } else {
+            null
+        }
 
-            // 更新 turn 记录
-            val endTime = System.currentTimeMillis()
-            val turn = database.turnDao().getTurnById(turnId)
-            if (turn != null) {
-                val duration = endTime - turn.startTime
-                database.turnDao().endTurn(turnId, endTime, duration, audioPath)
-            }
+        // 更新 turn 记录（包含音频和文本）
+        val endTime = System.currentTimeMillis()
+        val turn = database.turnDao().getTurnById(turnId)
+        if (turn != null) {
+            val duration = endTime - turn.startTime
+            database.turnDao().updateTurn(
+                turn.copy(
+                    endTime = endTime,
+                    duration = duration,
+                    audioPath = audioPath,
+                    text = currentUserText  // 保存用户语音转录文本
+                )
+            )
+            Log.d(TAG, "User turn saved: audio=${audioPath != null}, text=${currentUserText != null}")
         }
 
         currentUserTurnId = null
+        currentUserText = null  // 清空文本缓存
         Log.d(TAG, "User turn ended: $turnId")
     }
 
@@ -455,6 +515,7 @@ class ConversationManager(
         val sessionId = currentSessionId ?: return
 
         modelAudioChunks.clear()
+        currentModelText = null  // 清空文本缓存
 
         val turn = TurnEntity(
             sessionId = sessionId,
@@ -473,49 +534,95 @@ class ConversationManager(
         val turnId = currentModelTurnId ?: return@withContext
         val sessionId = currentSessionId ?: return@withContext
 
-        // 合并音频数据
-        val audioData = AudioProcessor.mergeAudioChunks(modelAudioChunks)
+        // 合并音频数据（创建副本避免并发修改异常）
+        val audioChunksCopy = modelAudioChunks.toList()
+        val audioData = AudioProcessor.mergeAudioChunks(audioChunksCopy)
 
         // 保存音频文件
-        if (audioData.isNotEmpty()) {
-            val audioPath = fileManager.generateAudioPath(sessionId, "model", modelAudioIndex++)
+        val audioPath = if (audioData.isNotEmpty()) {
+            val path = fileManager.generateAudioPath(sessionId, "model", modelAudioIndex++)
             val wavData = AudioProcessor.pcm16ToWav(audioData)
-            fileManager.saveAudioFile(sessionId, audioPath, wavData)
+            fileManager.saveAudioFile(sessionId, path, wavData)
+            path
+        } else {
+            null
+        }
 
-            // 更新 turn 记录
-            val endTime = System.currentTimeMillis()
-            val turn = database.turnDao().getTurnById(turnId)
-            if (turn != null) {
-                val duration = endTime - turn.startTime
-                database.turnDao().updateTurn(
-                    turn.copy(
-                        endTime = endTime,
-                        duration = duration,
-                        audioPath = audioPath,
-                        interrupted = interrupted
-                    )
+        // 更新 turn 记录（包含音频和文本）
+        val endTime = System.currentTimeMillis()
+        val turn = database.turnDao().getTurnById(turnId)
+        if (turn != null) {
+            val duration = endTime - turn.startTime
+            database.turnDao().updateTurn(
+                turn.copy(
+                    endTime = endTime,
+                    duration = duration,
+                    audioPath = audioPath,
+                    text = currentModelText,  // 保存文本
+                    interrupted = interrupted
                 )
-            }
+            )
+            Log.d(TAG, "Model turn saved: audio=${audioPath != null}, text=${currentModelText != null}")
         }
 
         currentModelTurnId = null
+        currentModelText = null  // 清空文本缓存
         Log.d(TAG, "Model turn ended: $turnId (interrupted=$interrupted)")
     }
 
     /**
      * 发送捕获的图像
      */
-    private fun sendCapturedImages() {
+    private fun sendCapturedImages() = scope.launch(Dispatchers.IO) {
         if (capturedImages.isEmpty()) {
-            return
+            Log.w(TAG, "⚠️ No images to send! capturedImages is empty")
+            return@launch
         }
 
-        val contents = capturedImages.map { image ->
-            ClientMessage.ConversationItemCreate.Content(
-                type = "image",
-                imageUrl = ClientMessage.ConversationItemCreate.ImageUrl(url = image.dataUrl)
-            )
+        val sessionId = currentSessionId ?: run {
+            Log.e(TAG, "❌ Cannot send images: no active session")
+            return@launch
         }
+
+        // 🎯 只使用最后一张图片（最新的锚点帧）
+        val latestImage = capturedImages.last()
+
+        Log.d(TAG, "📸 Sending latest image to OpenAI (from ${capturedImages.size} captured):")
+        Log.d(TAG, "  Latest image: ${latestImage.width}x${latestImage.height}, ${latestImage.sizeBytes} bytes, quality=${latestImage.quality}")
+
+        // 🔍 保存发送的图片副本用于调试
+        try {
+            val debugPath = fileManager.generateImagePath(sessionId, "sent_to_openai", 0)
+            val jpegBytes = ImageProcessor.decodeDataUrl(latestImage.dataUrl)
+            if (jpegBytes != null) {
+                fileManager.saveImageFile(sessionId, debugPath, jpegBytes)
+                Log.d(TAG, "  💾 Saved debug copy: $debugPath")
+            }
+
+            // 验证 data URL 格式
+            val prefix = latestImage.dataUrl.take(50)
+            Log.d(TAG, "  🔍 Data URL prefix: $prefix...")
+            if (!latestImage.dataUrl.startsWith("data:image/jpeg;base64,")) {
+                Log.e(TAG, "  ❌ Invalid data URL format!")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "  ⚠️ Failed to save debug copy: ${e.message}")
+        }
+
+        // 🔍 如果捕获了多张图片，记录所有图片信息用于调试
+        if (capturedImages.size > 1) {
+            Log.w(TAG, "⚠️ Multiple images captured (${capturedImages.size}), only sending the latest:")
+            capturedImages.forEachIndexed { index, image ->
+                Log.d(TAG, "    Image $index: ${image.width}x${image.height}, ${image.sizeBytes} bytes")
+            }
+        }
+
+        val contents = listOf(
+            ClientMessage.ConversationItemCreate.Content(
+                type = "input_image",  // ✅ 使用正确的类型
+                imageUrl = ClientMessage.ConversationItemCreate.ImageUrl(url = latestImage.dataUrl)
+            )
+        )
 
         val message = ClientMessage.ConversationItemCreate(
             item = ClientMessage.ConversationItemCreate.Item(
@@ -525,7 +632,8 @@ class ConversationManager(
         )
 
         realtimeWebSocket.send(message)
-        Log.d(TAG, "Sent ${capturedImages.size} images")
+        Log.i(TAG, "✅ Successfully sent latest image to OpenAI")
+        Log.i(TAG, "📂 Debug: Check sent_to_openai_0.jpg in session folder to verify image content")
     }
 
     /**
@@ -624,6 +732,8 @@ class ConversationManager(
 
             override fun onTextDone(message: ServerMessage.ResponseTextDone) {
                 Log.d(TAG, "Text done: ${message.text}")
+                // 缓存文本，稍后保存到数据库
+                currentModelText = message.text
                 // 添加模型回复到消息列表
                 if (message.text.isNotEmpty()) {
                     addMessage(ConversationMessage.Speaker.MODEL, message.text)
@@ -632,10 +742,54 @@ class ConversationManager(
 
             override fun onResponseDone(message: ServerMessage.ResponseDone) {
                 scope.launch {
-                    // 模型回应完成
-                    stateMachine.handleEvent(ConversationEvent.ModelEnd)
-                    endCurrentModelTurn()
-                    recordEvent("MODEL_END", "Model finished speaking")
+                    val status = message.response.status
+                    Log.d(TAG, "Response done with status: $status")
+
+                    when (status) {
+                        "completed" -> {
+                            // 正常完成
+                            stateMachine.handleEvent(ConversationEvent.ModelEnd)
+                            endCurrentModelTurn()
+                            recordEvent("MODEL_END", "Model finished speaking (status: $status)")
+                        }
+                        "cancelled" -> {
+                            // 响应被取消（通常是被打断）
+                            Log.w(TAG, "Response was cancelled")
+                            stateMachine.handleEvent(ConversationEvent.ModelEnd)
+                            endCurrentModelTurn(interrupted = true)
+                            recordEvent("MODEL_CANCELLED", "Model response cancelled")
+                        }
+                        "failed", "incomplete" -> {
+                            // 响应失败或不完整
+                            Log.e(TAG, "Response failed with status: $status, details: ${message.response.statusDetails}")
+                            stateMachine.handleEvent(ConversationEvent.ModelEnd)
+                            endCurrentModelTurn()
+                            recordEvent("MODEL_ERROR", "Model response failed: $status")
+
+                            // 可以在这里添加错误通知给用户
+                            addMessage(
+                                ConversationMessage.Speaker.MODEL,
+                                "[系统] 响应异常，状态: $status"
+                            )
+                        }
+                        else -> {
+                            // 未知状态
+                            Log.w(TAG, "Unknown response status: $status")
+                            stateMachine.handleEvent(ConversationEvent.ModelEnd)
+                            endCurrentModelTurn()
+                            recordEvent("MODEL_UNKNOWN_STATUS", "Unknown status: $status")
+                        }
+                    }
+                }
+            }
+
+            override fun onInputAudioTranscriptionCompleted(message: ServerMessage.InputAudioTranscriptionCompleted) {
+                Log.d(TAG, "User transcription completed: ${message.transcript}")
+                // 缓存用户语音转录文本
+                currentUserText = message.transcript
+                // 添加用户消息到消息列表
+                if (message.transcript.isNotEmpty()) {
+                    addMessage(ConversationMessage.Speaker.USER, message.transcript)
                 }
             }
 

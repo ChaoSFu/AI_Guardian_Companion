@@ -34,8 +34,8 @@ class CameraManager(
 ) {
     companion object {
         private const val TAG = "CameraManager"
-        private const val AMBIENT_FPS = 1.0f  // RealtimeConfig.Image.AMBIENT_FPS
-        private const val AMBIENT_INTERVAL_MS = 1000L  // (1000 / AMBIENT_FPS).toLong()
+        private val AMBIENT_FPS = RealtimeConfig.Image.AMBIENT_FPS
+        private val AMBIENT_INTERVAL_MS = (1000 / AMBIENT_FPS).toLong()
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -206,7 +206,13 @@ class CameraManager(
                     }
 
                     override fun onError(exception: ImageCaptureException) {
-                        Log.e(TAG, "Image capture failed", exception)
+                        // 相机未就绪时会发生此错误，这是正常的（会在下次重试）
+                        // 环境拍摄失败不算严重问题，降级为 DEBUG 日志
+                        if (exception.message?.contains("closed", ignoreCase = true) == true) {
+                            Log.d(TAG, "Camera not ready for capture (will retry next interval)")
+                        } else {
+                            Log.w(TAG, "Image capture failed: ${exception.message}")
+                        }
                         continuation.resume(Unit)
                     }
                 }
@@ -254,13 +260,41 @@ class CameraManager(
 
 /**
  * ImageProxy 转 Bitmap 扩展函数
+ *
+ * 正确处理 YUV_420_888 格式转 RGB Bitmap
  */
 private fun ImageProxy.toBitmap(): Bitmap {
-    val buffer = planes[0].buffer
-    val bytes = ByteArray(buffer.remaining())
-    buffer.get(bytes)
+    val yBuffer = planes[0].buffer // Y plane (luminance)
+    val uBuffer = planes[1].buffer // U plane (chrominance blue)
+    val vBuffer = planes[2].buffer // V plane (chrominance red)
 
-    // 使用 YUV_420_888 格式转换
-    return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        ?: throw IllegalStateException("Failed to decode image")
+    val ySize = yBuffer.remaining()
+    val uSize = uBuffer.remaining()
+    val vSize = vBuffer.remaining()
+
+    val nv21 = ByteArray(ySize + uSize + vSize)
+
+    // U and V are swapped for NV21 format
+    yBuffer.get(nv21, 0, ySize)
+    vBuffer.get(nv21, ySize, vSize)
+    uBuffer.get(nv21, ySize + vSize, uSize)
+
+    val yuvImage = android.graphics.YuvImage(
+        nv21,
+        android.graphics.ImageFormat.NV21,
+        this.width,
+        this.height,
+        null
+    )
+
+    val out = java.io.ByteArrayOutputStream()
+    yuvImage.compressToJpeg(
+        android.graphics.Rect(0, 0, yuvImage.width, yuvImage.height),
+        100,  // 最高质量（后续会在 ImageProcessor 中压缩）
+        out
+    )
+
+    val imageBytes = out.toByteArray()
+    return android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        ?: throw IllegalStateException("Failed to decode YUV image")
 }
