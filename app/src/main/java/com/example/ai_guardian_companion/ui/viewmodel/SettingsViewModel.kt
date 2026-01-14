@@ -442,6 +442,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 Log.d(TAG, "Image processed: ${processedImage.width}x${processedImage.height}, ${processedImage.sizeBytes} bytes")
 
                 // 构建请求 JSON
+                // ✅ Chat Completions API 需要使用标准 chat 模型
+                // ⚠️ Realtime 模型 (gpt-realtime-*) 只能用于 WebSocket，不能用于 HTTP
                 val requestJson = """
                 {
                   "model": "gpt-4o",

@@ -79,6 +79,7 @@ class ConversationManager(
     private val capturedImages = mutableListOf<ImageProcessor.ProcessedImage>()
     private var currentModelText: String? = null  // 当前模型回复的文本
     private var currentUserText: String? = null   // 当前用户语音的转录文本
+    private var isFirstAudioDelta = true          // 标记是否是第一个音频 delta
 
     // 日志优化：跟踪上次记录的状态，避免重复日志
     private var lastLoggedStateForAudio: ConversationState? = null
@@ -161,11 +162,12 @@ class ConversationManager(
                 .first { it == RealtimeWebSocket.ConnectionState.Connected }
 
             // 更新会话配置
+            // ✅ 方案A：不使用 input_audio_buffer，因此禁用相关功能
             val sessionUpdate = ClientMessage.SessionUpdate(
                 session = ClientMessage.SessionUpdate.Session(
                     instructions = RealtimeConfig.SYSTEM_PROMPT,
-                    inputAudioTranscription = ClientMessage.SessionUpdate.InputAudioTranscription(),
-                    turnDetection = null  // 使用客户端 VAD
+                    inputAudioTranscription = null,  // 禁用：只对 input_audio_buffer 有效
+                    turnDetection = null  // 禁用 server_vad，使用客户端 VAD
                 )
             )
             realtimeWebSocket.send(sessionUpdate)
@@ -232,33 +234,28 @@ class ConversationManager(
         // VAD 处理
         vadDetector.processAudioChunk(audioChunk)
 
-        // 根据状态决定是否发送音频
+        // 根据状态决定是否缓冲音频
         when (_conversationState.value) {
             ConversationState.LISTENING -> {
-                // 用户正在说话，缓冲音频
+                // 用户正在说话，缓冲音频（不再流式发送）
                 userAudioChunks.add(audioChunk.data)
 
                 // 重置日志标志，以便下次状态变化时能记录
                 lastLoggedStateForAudio = null
 
-                // 发送到 WebSocket
-                val base64Audio = AudioProcessor.pcm16ToBase64(audioChunk.data)
-                val message = ClientMessage.InputAudioBufferAppend(audio = base64Audio)
-                val sent = realtimeWebSocket.send(message)
-                if (!sent) {
-                    Log.w(TAG, "⚠️ Failed to send audio chunk")
-                }
+                // ✅ 方案A：只缓冲，不发送。音频将在用户停止说话时和图片一起发送
+                Log.v(TAG, "🎙️ Buffering audio chunk (${audioChunk.data.size} bytes), total chunks: ${userAudioChunks.size}")
             }
             ConversationState.MODEL_SPEAKING -> {
                 // 模型正在说话，检测打断
                 // VAD 会自动触发 INTERRUPTING 状态
             }
             else -> {
-                // IDLE or INTERRUPTING: 不发送音频
+                // IDLE or INTERRUPTING: 不缓冲音频
                 // 只在状态变化时记录日志，避免日志泛滥
                 val currentState = _conversationState.value
                 if (lastLoggedStateForAudio != currentState) {
-                    Log.v(TAG, "⏸️ Not sending audio in state: $currentState")
+                    Log.v(TAG, "⏸️ Not buffering audio in state: $currentState")
                     lastLoggedStateForAudio = currentState
                 }
             }
@@ -347,14 +344,20 @@ class ConversationManager(
         Log.d(TAG, "🔄 handleSpeechEnd in state: $currentState")
 
         when (currentState) {
-            ConversationState.LISTENING -> {
+            ConversationState.LISTENING, ConversationState.INTERRUPTING -> {
                 // LISTENING → MODEL_SPEAKING (等待模型回应)
-                Log.i(TAG, "📢 Transition: LISTENING → MODEL_SPEAKING (requesting response)")
+                // INTERRUPTING → LISTENING → MODEL_SPEAKING (打断后请求新回应)
+                val transitionDesc = if (currentState == ConversationState.LISTENING) {
+                    "LISTENING → MODEL_SPEAKING"
+                } else {
+                    "INTERRUPTING → LISTENING → MODEL_SPEAKING"
+                }
+                Log.i(TAG, "📢 Transition: $transitionDesc (requesting response)")
                 stateMachine.handleEvent(ConversationEvent.VadEnd)
 
-                // 提交音频缓冲
-                Log.d(TAG, "📤 Committing audio buffer")
-                realtimeWebSocket.send(ClientMessage.InputAudioBufferCommit())
+                // ✅ 方案A：不再使用 input_audio_buffer.commit
+                // 音频将和图片一起在 conversation.item.create 中发送
+                Log.d(TAG, "🎙️ Audio buffered: ${userAudioChunks.size} chunks")
 
                 // ⚠️ 停止环境帧捕获，防止新的环境帧混入
                 cameraManager.stopAmbientCapture()
@@ -376,18 +379,27 @@ class ConversationManager(
                     Log.d(TAG, "  📷 Image $index: ${img.width}x${img.height}, ${img.sizeBytes} bytes")
                 }
 
-                // 发送图像（如果有）
-                sendCapturedImages()
+                // ✅ 发送音频 + 文本指令 + 图片（在同一个 conversation.item.create 中）
+                // ⚠️ 必须等待发送完成后再请求响应
+                sendAudioAndImages().join()  // ✅ 等待发送完成
 
-                // 请求模型回应
-                Log.d(TAG, "📤 Requesting model response")
+                // 重置标志，准备接收模型回应
+                isFirstAudioDelta = true
+
+                // 请求模型回应（在内容发送完成后）
+                Log.d(TAG, "📤 Requesting model response (after content sent)")
                 realtimeWebSocket.send(ClientMessage.ResponseCreate())
 
                 // 结束用户 turn
                 endCurrentUserTurn()
 
                 // 记录事件
-                recordEvent("VAD_END", "User stopped speaking")
+                val eventDetail = if (currentState == ConversationState.INTERRUPTING) {
+                    "User stopped speaking (after interrupt)"
+                } else {
+                    "User stopped speaking"
+                }
+                recordEvent("VAD_END", eventDetail)
             }
             else -> {
                 // 其他状态不处理
@@ -571,8 +583,113 @@ class ConversationManager(
     }
 
     /**
-     * 发送捕获的图像
+     * ✅ 方案A：发送音频 + 文本指令 + 图片（在同一个 conversation.item.create 中）
      */
+    private fun sendAudioAndImages() = scope.launch(Dispatchers.IO) {
+        val sessionId = currentSessionId ?: run {
+            Log.e(TAG, "❌ Cannot send content: no active session")
+            return@launch
+        }
+
+        // 构建内容列表
+        val contents = mutableListOf<ClientMessage.ConversationItemCreate.Content>()
+
+        // 1️⃣ 添加音频（如果有）
+        if (userAudioChunks.isNotEmpty()) {
+            Log.d(TAG, "🎙️ Merging ${userAudioChunks.size} audio chunks...")
+
+            // 合并所有音频块
+            val fullAudio = AudioProcessor.mergeAudioChunks(userAudioChunks)
+            val audioDurationMs = AudioProcessor.calculateDurationMs(fullAudio)
+
+            // 转为 Base64
+            val base64Audio = AudioProcessor.pcm16ToBase64(fullAudio)
+
+            Log.d(TAG, "  📊 Total audio: ${fullAudio.size} bytes, ~${audioDurationMs}ms")
+
+            // 添加到内容
+            contents.add(
+                ClientMessage.ConversationItemCreate.Content(
+                    type = "input_audio",
+                    audio = base64Audio
+                )
+            )
+
+            // 保存音频副本用于调试
+            try {
+                val audioPath = fileManager.generateAudioPath(sessionId, "user", userAudioIndex++)
+                val wavData = AudioProcessor.pcm16ToWav(fullAudio)
+                fileManager.saveAudioFile(sessionId, audioPath, wavData)
+                Log.d(TAG, "  💾 Saved audio debug copy: $audioPath")
+            } catch (e: Exception) {
+                Log.e(TAG, "  ⚠️ Failed to save audio: ${e.message}")
+            }
+
+            // 清空音频缓冲（重要！）
+            userAudioChunks.clear()
+        } else {
+            Log.w(TAG, "⚠️ No audio chunks to send")
+        }
+
+        // 2️⃣ 不添加固定语言的文本指令
+        // ✅ 让 AI 根据用户音频的语言自动匹配响应语言
+        // 系统 prompt 已经包含了 "Always respond in the SAME LANGUAGE as the user's input"
+        // 如果用户说中文，AI 会用中文回复；如果说英文，AI 会用英文回复
+        Log.d(TAG, "📝 No explicit text instruction - let AI match user's language from audio")
+
+        // 3️⃣ 添加图片（如果有）
+        if (capturedImages.isNotEmpty()) {
+            val latestImage = capturedImages.last()
+
+            Log.d(TAG, "📸 Adding latest image (from ${capturedImages.size} captured):")
+            Log.d(TAG, "  📷 Image: ${latestImage.width}x${latestImage.height}, ${latestImage.sizeBytes} bytes, quality=${latestImage.quality}")
+
+            // 保存图片副本用于调试
+            try {
+                val debugPath = fileManager.generateImagePath(sessionId, "sent_to_openai", 0)
+                val jpegBytes = ImageProcessor.decodeDataUrl(latestImage.dataUrl)
+                if (jpegBytes != null) {
+                    fileManager.saveImageFile(sessionId, debugPath, jpegBytes)
+                    Log.d(TAG, "  💾 Saved image debug copy: $debugPath")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "  ⚠️ Failed to save image: ${e.message}")
+            }
+
+            // 添加到内容
+            contents.add(
+                ClientMessage.ConversationItemCreate.Content(
+                    type = "input_image",
+                    imageUrl = ClientMessage.ConversationItemCreate.ImageUrl(url = latestImage.dataUrl)
+                )
+            )
+        } else {
+            Log.w(TAG, "⚠️ No images to send")
+        }
+
+        // 4️⃣ 构建并发送消息
+        val message = ClientMessage.ConversationItemCreate(
+            item = ClientMessage.ConversationItemCreate.Item(
+                role = "user",
+                content = contents
+            )
+        )
+
+        val success = realtimeWebSocket.send(message)
+        if (success) {
+            Log.i(TAG, "✅ Successfully sent conversation item with ${contents.size} content parts:")
+            contents.forEachIndexed { index, content ->
+                Log.i(TAG, "   ${index + 1}. ${content.type}")
+            }
+        } else {
+            Log.e(TAG, "❌ Failed to send conversation item")
+        }
+    }
+
+    /**
+     * 发送捕获的图像（旧方法，保留以防需要）
+     */
+    @Deprecated("Use sendAudioAndImages() instead", ReplaceWith("sendAudioAndImages()"))
     private fun sendCapturedImages() = scope.launch(Dispatchers.IO) {
         if (capturedImages.isEmpty()) {
             Log.w(TAG, "⚠️ No images to send! capturedImages is empty")
@@ -713,6 +830,18 @@ class ConversationManager(
             }
 
             override fun onAudioDelta(message: ServerMessage.ResponseAudioDelta) {
+                // 第一个音频 delta：触发状态转换 LISTENING → MODEL_SPEAKING
+                if (isFirstAudioDelta) {
+                    isFirstAudioDelta = false
+                    Log.d(TAG, "🔊 First audio delta received, transitioning to MODEL_SPEAKING")
+                    stateMachine.handleEvent(ConversationEvent.ModelStart)
+
+                    // 开始模型 turn
+                    scope.launch {
+                        startModelTurn(System.currentTimeMillis())
+                    }
+                }
+
                 // 解码音频数据
                 val audioData = AudioProcessor.base64ToPcm16(message.delta)
                 modelAudioChunks.add(audioData)
