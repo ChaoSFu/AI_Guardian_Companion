@@ -34,8 +34,9 @@ class AudioOutputManager {
     private var playbackJob: Job? = null
 
     private val audioQueue = ConcurrentLinkedQueue<ByteArray>()
-    private var isPlaying = false
-    private var isPaused = false
+    @Volatile private var isPlaying = false
+    @Volatile private var isPaused = false
+    @Volatile private var isFlushed = false  // 标记是否被 flush，阻止自动恢复
 
     /**
      * 初始化 AudioTrack
@@ -98,6 +99,7 @@ class AudioOutputManager {
             audioTrack?.play()
             isPlaying = true
             isPaused = false
+            isFlushed = false  // 重置 flush 状态，允许接收新音频
 
             // 启动播放线程
             playbackJob = scope.launch {
@@ -165,47 +167,83 @@ class AudioOutputManager {
         try {
             audioTrack?.play()
             isPaused = false
-            Log.d(TAG, "Playback resumed")
+            isFlushed = false  // 重置 flush 状态
+            Log.d(TAG, "▶️ Playback resumed")
         } catch (e: Exception) {
             Log.e(TAG, "Error resuming playback", e)
         }
     }
 
     /**
+     * 准备接收新音频（在新响应开始时调用）
+     * 重置 flush 状态，允许新音频写入
+     */
+    fun prepareForNewAudio() {
+        isFlushed = false
+        isPaused = false
+        if (isPlaying && audioTrack?.playState == AudioTrack.PLAYSTATE_PAUSED) {
+            try {
+                audioTrack?.play()
+                Log.d(TAG, "▶️ Prepared for new audio, resuming playback")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error preparing for new audio", e)
+            }
+        }
+    }
+
+    /**
      * 写入音频数据到队列
+     * 注意：如果处于 flushed 状态（打断后），音频会被丢弃
      */
     fun writeAudio(audioData: ByteArray) {
         if (audioData.isEmpty()) {
             return
         }
 
-        audioQueue.offer(audioData)
-
-        // 如果 AudioTrack 被暂停（比如被打断后），收到新音频时恢复播放
-        if (isPlaying && audioTrack?.playState == AudioTrack.PLAYSTATE_PAUSED) {
-            audioTrack?.play()
-            Log.d(TAG, "Resuming playback after receiving new audio")
+        // 如果被 flush 了（打断模式），丢弃新音频
+        if (isFlushed) {
+            Log.v(TAG, "🚫 Discarding audio (flushed state): ${audioData.size} bytes")
+            return
         }
 
-        Log.d(TAG, "Audio chunk queued: ${audioData.size} bytes, queue size: ${audioQueue.size}")
+        audioQueue.offer(audioData)
+
+        // 如果 AudioTrack 被暂停且不是因为 flush，收到新音频时恢复播放
+        // 注意：isFlushed 为 true 时不自动恢复
+        if (isPlaying && !isFlushed && audioTrack?.playState == AudioTrack.PLAYSTATE_PAUSED) {
+            audioTrack?.play()
+            isPaused = false
+            Log.d(TAG, "▶️ Resuming playback after receiving new audio")
+        }
+
+        Log.v(TAG, "Audio chunk queued: ${audioData.size} bytes, queue size: ${audioQueue.size}")
     }
 
     /**
-     * 清空音频队列（用于 barge-in）
-     */
-    /**
-     * 清空音频队列和缓冲区
+     * 清空音频队列和缓冲区（用于 barge-in 打断）
      * @param resume 是否在清空后恢复播放（默认 true）
+     *               - true: 清空后继续播放（如跳过当前内容）
+     *               - false: 清空后暂停，等待新内容（打断场景）
      */
     fun flush(resume: Boolean = true) {
+        Log.d(TAG, "🔇 Flushing audio (resume=$resume)")
         audioQueue.clear()
         try {
             audioTrack?.pause()
             audioTrack?.flush()
-            if (resume && isPlaying && !isPaused) {
-                audioTrack?.play()
+
+            if (resume) {
+                // 恢复播放模式：允许后续音频自动恢复
+                isFlushed = false
+                if (isPlaying && !isPaused) {
+                    audioTrack?.play()
+                }
+            } else {
+                // 打断模式：阻止自动恢复，丢弃后续音频直到明确恢复
+                isFlushed = true
+                isPaused = true
             }
-            Log.d(TAG, "Audio queue flushed (resume=$resume)")
+            Log.d(TAG, "✅ Audio flushed (resume=$resume, isFlushed=$isFlushed)")
         } catch (e: Exception) {
             Log.e(TAG, "Error flushing audio", e)
         }

@@ -14,6 +14,7 @@ import com.example.ai_guardian_companion.ui.model.ConversationMessage
 import com.example.ai_guardian_companion.ui.model.SessionStats
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 对话管理器
@@ -77,9 +78,10 @@ class ConversationManager(
     private val userAudioChunks = mutableListOf<ByteArray>()
     private val modelAudioChunks = mutableListOf<ByteArray>()
     private val capturedImages = mutableListOf<ImageProcessor.ProcessedImage>()
-    private var currentModelText: String? = null  // 当前模型回复的文本
-    private var currentUserText: String? = null   // 当前用户语音的转录文本
-    private var isFirstAudioDelta = true          // 标记是否是第一个音频 delta
+    @Volatile private var currentModelText: String? = null  // 当前模型回复的文本
+    @Volatile private var currentUserText: String? = null   // 当前用户语音的转录文本
+    @Volatile private var currentUserAudioPath: String? = null  // 当前用户音频保存路径
+    private val isFirstAudioDelta = AtomicBoolean(true)     // 标记是否是第一个音频 delta
 
     // 日志优化：跟踪上次记录的状态，避免重复日志
     private var lastLoggedStateForAudio: ConversationState? = null
@@ -236,9 +238,11 @@ class ConversationManager(
 
         // 根据状态决定是否缓冲音频
         when (_conversationState.value) {
-            ConversationState.LISTENING -> {
-                // 用户正在说话，缓冲音频（不再流式发送）
-                userAudioChunks.add(audioChunk.data)
+            ConversationState.LISTENING, ConversationState.INTERRUPTING -> {
+                // 用户正在说话或打断后继续说话，缓冲音频
+                synchronized(userAudioChunks) {
+                    userAudioChunks.add(audioChunk.data)
+                }
 
                 // 重置日志标志，以便下次状态变化时能记录
                 lastLoggedStateForAudio = null
@@ -247,11 +251,15 @@ class ConversationManager(
                 Log.v(TAG, "🎙️ Buffering audio chunk (${audioChunk.data.size} bytes), total chunks: ${userAudioChunks.size}")
             }
             ConversationState.MODEL_SPEAKING -> {
-                // 模型正在说话，检测打断
+                // 模型正在说话，也缓冲音频（为了捕获打断时的音频）
                 // VAD 会自动触发 INTERRUPTING 状态
+                synchronized(userAudioChunks) {
+                    userAudioChunks.add(audioChunk.data)
+                }
+                Log.v(TAG, "🎙️ Buffering audio during model speaking (${audioChunk.data.size} bytes), total: ${userAudioChunks.size}")
             }
             else -> {
-                // IDLE or INTERRUPTING: 不缓冲音频
+                // IDLE: 不缓冲音频
                 // 只在状态变化时记录日志，避免日志泛滥
                 val currentState = _conversationState.value
                 if (lastLoggedStateForAudio != currentState) {
@@ -310,14 +318,14 @@ class ConversationManager(
                 // 取消模型回应
                 realtimeWebSocket.send(ClientMessage.ResponseCancel())
 
-                // 清空音频输出队列（不恢复播放）
+                // 清空音频输出队列（立即停止播放）
                 audioOutputManager.flush(resume = false)
 
                 // 结束模型 turn（标记为被打断）
                 endCurrentModelTurn(interrupted = true)
 
-                // 开始新的用户 turn
-                startUserTurn(timestamp)
+                // 开始新的用户 turn（保留已缓冲的音频）
+                startUserTurn(timestamp, clearAudioBuffer = false)
 
                 // 启动环境帧捕获
                 cameraManager.startAmbientCapture()
@@ -364,7 +372,9 @@ class ConversationManager(
                 Log.d(TAG, "🛑 Stopped ambient capture to prevent frame mixing")
 
                 // 清空旧图片，只使用最新的锚点帧
-                capturedImages.clear()
+                synchronized(capturedImages) {
+                    capturedImages.clear()
+                }
                 Log.d(TAG, "🗑️ Cleared old images, will capture fresh anchor frame")
 
                 // 拍摄最新画面（确保发送的是最新内容）
@@ -374,9 +384,11 @@ class ConversationManager(
                 // 等待锚点帧处理完成
                 delay(500)
 
-                Log.d(TAG, "📦 Images ready to send: ${capturedImages.size} images")
-                capturedImages.forEachIndexed { index, img ->
-                    Log.d(TAG, "  📷 Image $index: ${img.width}x${img.height}, ${img.sizeBytes} bytes")
+                synchronized(capturedImages) {
+                    Log.d(TAG, "📦 Images ready to send: ${capturedImages.size} images")
+                    capturedImages.forEachIndexed { index, img ->
+                        Log.d(TAG, "  📷 Image $index: ${img.width}x${img.height}, ${img.sizeBytes} bytes")
+                    }
                 }
 
                 // ✅ 发送音频 + 文本指令 + 图片（在同一个 conversation.item.create 中）
@@ -384,7 +396,7 @@ class ConversationManager(
                 sendAudioAndImages().join()  // ✅ 等待发送完成
 
                 // 重置标志，准备接收模型回应
-                isFirstAudioDelta = true
+                isFirstAudioDelta.set(true)
 
                 // 请求模型回应（在内容发送完成后）
                 Log.d(TAG, "📤 Requesting model response (after content sent)")
@@ -426,9 +438,12 @@ class ConversationManager(
         val result = ImageProcessor.processImage(frame.bitmap)
         if (result.isSuccess) {
             val processedImage = result.getOrNull()!!
-            capturedImages.add(processedImage)
+            val queueSize = synchronized(capturedImages) {
+                capturedImages.add(processedImage)
+                capturedImages.size
+            }
 
-            Log.d(TAG, "📸 Processed $frameTypeName frame: ${processedImage.width}x${processedImage.height}, ${processedImage.sizeBytes} bytes (queue size: ${capturedImages.size})")
+            Log.d(TAG, "📸 Processed $frameTypeName frame: ${processedImage.width}x${processedImage.height}, ${processedImage.sizeBytes} bytes (queue size: $queueSize)")
 
             // 保存图像到文件
             val role = when (frame.type) {
@@ -460,12 +475,21 @@ class ConversationManager(
 
     /**
      * 开始用户 turn
+     * @param clearAudioBuffer 是否清空音频缓冲，打断时应该保留已缓冲的音频
      */
-    private suspend fun startUserTurn(timestamp: Long) {
+    private suspend fun startUserTurn(timestamp: Long, clearAudioBuffer: Boolean = true) {
         val sessionId = currentSessionId ?: return
 
-        userAudioChunks.clear()
-        capturedImages.clear()
+        if (clearAudioBuffer) {
+            synchronized(userAudioChunks) {
+                userAudioChunks.clear()
+            }
+        } else {
+            Log.d(TAG, "🎙️ Keeping ${userAudioChunks.size} buffered audio chunks from interruption")
+        }
+        synchronized(capturedImages) {
+            capturedImages.clear()
+        }
         currentUserText = null  // 清空文本缓存
 
         val turn = TurnEntity(
@@ -475,7 +499,7 @@ class ConversationManager(
         )
         currentUserTurnId = database.turnDao().insertTurn(turn)
 
-        Log.d(TAG, "User turn started: $currentUserTurnId")
+        Log.d(TAG, "User turn started: $currentUserTurnId (clearAudioBuffer=$clearAudioBuffer)")
     }
 
     /**
@@ -483,21 +507,9 @@ class ConversationManager(
      */
     private suspend fun endCurrentUserTurn() = withContext(Dispatchers.IO) {
         val turnId = currentUserTurnId ?: return@withContext
-        val sessionId = currentSessionId ?: return@withContext
 
-        // 合并音频数据（创建副本避免并发修改异常）
-        val audioChunksCopy = userAudioChunks.toList()
-        val audioData = AudioProcessor.mergeAudioChunks(audioChunksCopy)
-
-        // 保存音频文件
-        val audioPath = if (audioData.isNotEmpty()) {
-            val path = fileManager.generateAudioPath(sessionId, "user", userAudioIndex++)
-            val wavData = AudioProcessor.pcm16ToWav(audioData)
-            fileManager.saveAudioFile(sessionId, path, wavData)
-            path
-        } else {
-            null
-        }
+        // 使用 sendAudioAndImages 中保存的音频路径
+        val audioPath = currentUserAudioPath
 
         // 更新 turn 记录（包含音频和文本）
         val endTime = System.currentTimeMillis()
@@ -517,6 +529,7 @@ class ConversationManager(
 
         currentUserTurnId = null
         currentUserText = null  // 清空文本缓存
+        currentUserAudioPath = null  // 清空音频路径
         Log.d(TAG, "User turn ended: $turnId")
     }
 
@@ -526,7 +539,9 @@ class ConversationManager(
     private suspend fun startModelTurn(timestamp: Long) {
         val sessionId = currentSessionId ?: return
 
-        modelAudioChunks.clear()
+        synchronized(modelAudioChunks) {
+            modelAudioChunks.clear()
+        }
         currentModelText = null  // 清空文本缓存
 
         val turn = TurnEntity(
@@ -546,14 +561,21 @@ class ConversationManager(
         val turnId = currentModelTurnId ?: return@withContext
         val sessionId = currentSessionId ?: return@withContext
 
-        // 合并音频数据（创建副本避免并发修改异常）
-        val audioChunksCopy = modelAudioChunks.toList()
+        // 合并音频数据（创建副本并清空，避免并发修改异常）
+        val audioChunksCopy = synchronized(modelAudioChunks) {
+            val copy = modelAudioChunks.toList()
+            modelAudioChunks.clear()
+            copy
+        }
         val audioData = AudioProcessor.mergeAudioChunks(audioChunksCopy)
 
-        // 保存音频文件
+        // 保存音频文件（模型音频使用 24kHz 采样率）
         val audioPath = if (audioData.isNotEmpty()) {
             val path = fileManager.generateAudioPath(sessionId, "model", modelAudioIndex++)
-            val wavData = AudioProcessor.pcm16ToWav(audioData)
+            val wavData = AudioProcessor.pcm16ToWav(
+                audioData,
+                sampleRate = RealtimeConfig.Audio.OUTPUT_SAMPLE_RATE  // 24000 Hz
+            )
             fileManager.saveAudioFile(sessionId, path, wavData)
             path
         } else {
@@ -595,11 +617,18 @@ class ConversationManager(
         val contents = mutableListOf<ClientMessage.ConversationItemCreate.Content>()
 
         // 1️⃣ 添加音频（如果有）
-        if (userAudioChunks.isNotEmpty()) {
-            Log.d(TAG, "🎙️ Merging ${userAudioChunks.size} audio chunks...")
+        // 先创建副本并清空原列表，避免并发修改异常
+        val audioChunksCopy = synchronized(userAudioChunks) {
+            val copy = userAudioChunks.toList()
+            userAudioChunks.clear()
+            copy
+        }
+
+        if (audioChunksCopy.isNotEmpty()) {
+            Log.d(TAG, "🎙️ Merging ${audioChunksCopy.size} audio chunks...")
 
             // 合并所有音频块
-            val fullAudio = AudioProcessor.mergeAudioChunks(userAudioChunks)
+            val fullAudio = AudioProcessor.mergeAudioChunks(audioChunksCopy)
             val audioDurationMs = AudioProcessor.calculateDurationMs(fullAudio)
 
             // 转为 Base64
@@ -615,18 +644,20 @@ class ConversationManager(
                 )
             )
 
-            // 保存音频副本用于调试
+            // 保存用户音频文件（16kHz 采样率）
             try {
                 val audioPath = fileManager.generateAudioPath(sessionId, "user", userAudioIndex++)
-                val wavData = AudioProcessor.pcm16ToWav(fullAudio)
+                val wavData = AudioProcessor.pcm16ToWav(
+                    fullAudio,
+                    sampleRate = RealtimeConfig.Audio.INPUT_SAMPLE_RATE  // 16000 Hz
+                )
                 fileManager.saveAudioFile(sessionId, audioPath, wavData)
-                Log.d(TAG, "  💾 Saved audio debug copy: $audioPath")
+                currentUserAudioPath = audioPath  // 保存路径供 endCurrentUserTurn 使用
+                Log.d(TAG, "  💾 Saved user audio: $audioPath")
             } catch (e: Exception) {
                 Log.e(TAG, "  ⚠️ Failed to save audio: ${e.message}")
+                currentUserAudioPath = null
             }
-
-            // 清空音频缓冲（重要！）
-            userAudioChunks.clear()
         } else {
             Log.w(TAG, "⚠️ No audio chunks to send")
         }
@@ -638,10 +669,13 @@ class ConversationManager(
         Log.d(TAG, "📝 No explicit text instruction - let AI match user's language from audio")
 
         // 3️⃣ 添加图片（如果有）
-        if (capturedImages.isNotEmpty()) {
-            val latestImage = capturedImages.last()
+        // 创建副本避免并发修改
+        val latestImage = synchronized(capturedImages) {
+            if (capturedImages.isNotEmpty()) capturedImages.last() else null
+        }
 
-            Log.d(TAG, "📸 Adding latest image (from ${capturedImages.size} captured):")
+        if (latestImage != null) {
+            Log.d(TAG, "📸 Adding latest image:")
             Log.d(TAG, "  📷 Image: ${latestImage.width}x${latestImage.height}, ${latestImage.sizeBytes} bytes, quality=${latestImage.quality}")
 
             // 保存图片副本用于调试
@@ -831,10 +865,13 @@ class ConversationManager(
 
             override fun onAudioDelta(message: ServerMessage.ResponseAudioDelta) {
                 // 第一个音频 delta：触发状态转换 LISTENING → MODEL_SPEAKING
-                if (isFirstAudioDelta) {
-                    isFirstAudioDelta = false
+                // 使用 compareAndSet 保证原子性，只执行一次
+                if (isFirstAudioDelta.compareAndSet(true, false)) {
                     Log.d(TAG, "🔊 First audio delta received, transitioning to MODEL_SPEAKING")
                     stateMachine.handleEvent(ConversationEvent.ModelStart)
+
+                    // 准备接收新音频（重置 flush 状态）
+                    audioOutputManager.prepareForNewAudio()
 
                     // 开始模型 turn
                     scope.launch {
@@ -844,7 +881,9 @@ class ConversationManager(
 
                 // 解码音频数据
                 val audioData = AudioProcessor.base64ToPcm16(message.delta)
-                modelAudioChunks.add(audioData)
+                synchronized(modelAudioChunks) {
+                    modelAudioChunks.add(audioData)
+                }
 
                 // 写入音频输出
                 audioOutputManager.writeAudio(audioData)

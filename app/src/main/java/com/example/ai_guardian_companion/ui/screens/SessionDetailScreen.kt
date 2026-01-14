@@ -26,6 +26,8 @@ import coil.request.ImageRequest
 import com.example.ai_guardian_companion.storage.FileManager
 import com.example.ai_guardian_companion.ui.viewmodel.HistoryViewModel
 import com.example.ai_guardian_companion.ui.viewmodel.TurnWithImages
+import android.media.MediaPlayer
+import android.util.Log
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -379,6 +381,25 @@ fun AudioPlayButton(
     speaker: String
 ) {
     var isPlaying by remember { mutableStateOf(false) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // 清理 MediaPlayer
+    DisposableEffect(audioFile) {
+        onDispose {
+            mediaPlayer?.let {
+                try {
+                    if (it.isPlaying) {
+                        it.stop()
+                    }
+                    it.release()
+                } catch (e: Exception) {
+                    Log.e("AudioPlayButton", "Error releasing MediaPlayer", e)
+                }
+            }
+            mediaPlayer = null
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -389,27 +410,85 @@ fun AudioPlayButton(
         Row(
             modifier = Modifier
                 .clickable {
-                    // TODO: 实现音频播放
-                    isPlaying = !isPlaying
+                    if (!audioFile.exists()) {
+                        errorMessage = "音频文件不存在"
+                        return@clickable
+                    }
+
+                    if (isPlaying) {
+                        // 停止播放
+                        try {
+                            mediaPlayer?.let {
+                                if (it.isPlaying) {
+                                    it.stop()
+                                }
+                                it.release()
+                            }
+                            mediaPlayer = null
+                            isPlaying = false
+                            errorMessage = null
+                        } catch (e: Exception) {
+                            Log.e("AudioPlayButton", "Error stopping playback", e)
+                            errorMessage = "停止失败: ${e.message}"
+                        }
+                    } else {
+                        // 开始播放
+                        try {
+                            // 先释放之前的 MediaPlayer
+                            mediaPlayer?.release()
+
+                            mediaPlayer = MediaPlayer().apply {
+                                setDataSource(audioFile.absolutePath)
+                                setOnCompletionListener {
+                                    isPlaying = false
+                                    Log.d("AudioPlayButton", "Playback completed")
+                                }
+                                setOnErrorListener { _, what, extra ->
+                                    Log.e("AudioPlayButton", "MediaPlayer error: what=$what, extra=$extra")
+                                    errorMessage = "播放错误: $what"
+                                    isPlaying = false
+                                    true
+                                }
+                                prepare()
+                                start()
+                            }
+                            isPlaying = true
+                            errorMessage = null
+                            Log.d("AudioPlayButton", "Started playing: ${audioFile.absolutePath}")
+                        } catch (e: Exception) {
+                            Log.e("AudioPlayButton", "Error starting playback", e)
+                            errorMessage = "播放失败: ${e.message}"
+                            isPlaying = false
+                        }
+                    }
                 }
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (isPlaying) Icons.Default.Clear else Icons.Default.PlayArrow,
+                imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
                 contentDescription = if (isPlaying) "停止" else "播放",
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (audioFile.exists()) {
-                    "${speaker}音频 (${audioFile.length() / 1024} KB)"
-                } else {
-                    "音频文件不存在"
-                },
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            Column {
+                Text(
+                    text = if (audioFile.exists()) {
+                        "${speaker}音频 (${audioFile.length() / 1024} KB)"
+                    } else {
+                        "音频文件不存在"
+                    },
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                errorMessage?.let { error ->
+                    Text(
+                        text = error,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
         }
     }
 }
