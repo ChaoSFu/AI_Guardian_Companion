@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.ai_guardian_companion.storage.SettingsDataStore
+import com.example.ai_guardian_companion.ui.LocalizedApp
 import com.example.ai_guardian_companion.ui.screens.*
 import com.example.ai_guardian_companion.ui.theme.AI_Guardian_CompanionTheme
 import kotlinx.coroutines.flow.first
@@ -27,11 +28,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AI_Guardian_CompanionTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    AppNavigation()
+                LocalizedApp {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        AppNavigation()
+                    }
                 }
             }
         }
@@ -46,12 +49,14 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val settingsDataStore = remember { SettingsDataStore(navController.context) }
     var apiKey by remember { mutableStateOf<String?>(null) }
+    var modelName by remember { mutableStateOf(SettingsDataStore.DEFAULT_MODEL) }
     val scope = rememberCoroutineScope()
 
-    // 加载 API Key
+    // 加载 API Key 和模型名称
     LaunchedEffect(Unit) {
         scope.launch {
             apiKey = settingsDataStore.apiKey.first()
+            modelName = settingsDataStore.modelName.first()
         }
     }
 
@@ -92,6 +97,7 @@ fun AppNavigation() {
             apiKey?.let { key ->
                 RealtimeScreen(
                     apiKey = key,
+                    modelName = modelName,
                     onNavigateBack = {
                         navController.popBackStack("home", inclusive = false)
                     }
@@ -110,9 +116,10 @@ fun AppNavigation() {
         composable("settings") {
             SettingsScreen(
                 onNavigateBack = {
-                    // 重新加载 API Key
+                    // 重新加载 API Key 和模型名称
                     scope.launch {
                         apiKey = settingsDataStore.apiKey.first()
+                        modelName = settingsDataStore.modelName.first()
                     }
                     navController.popBackStack()
                 }

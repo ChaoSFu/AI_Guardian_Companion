@@ -226,26 +226,47 @@ class AudioOutputManager {
      *               - false: 清空后暂停，等待新内容（打断场景）
      */
     fun flush(resume: Boolean = true) {
-        Log.d(TAG, "🔇 Flushing audio (resume=$resume)")
+        // 🔍 诊断日志：打断问题
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
+        Log.i(TAG, "🔇 FLUSH CALLED (resume=$resume)")
+        Log.i(TAG, "  📊 Before flush:")
+        Log.i(TAG, "    - isPlaying: $isPlaying")
+        Log.i(TAG, "    - isPaused: $isPaused")
+        Log.i(TAG, "    - isFlushed: $isFlushed")
+        Log.i(TAG, "    - queueSize: ${audioQueue.size}")
+        Log.i(TAG, "    - audioTrack state: ${audioTrack?.playState}")
+
         audioQueue.clear()
+        Log.i(TAG, "  🗑️ Queue cleared, new size: ${audioQueue.size}")
+
         try {
             audioTrack?.pause()
+            Log.i(TAG, "  ⏸️ AudioTrack paused")
             audioTrack?.flush()
+            Log.i(TAG, "  🔇 AudioTrack flushed")
 
             if (resume) {
                 // 恢复播放模式：允许后续音频自动恢复
                 isFlushed = false
                 if (isPlaying && !isPaused) {
                     audioTrack?.play()
+                    Log.i(TAG, "  ▶️ AudioTrack resumed")
                 }
             } else {
                 // 打断模式：阻止自动恢复，丢弃后续音频直到明确恢复
                 isFlushed = true
                 isPaused = true
+                Log.i(TAG, "  🛑 INTERRUPT MODE: isFlushed=true, isPaused=true")
             }
-            Log.d(TAG, "✅ Audio flushed (resume=$resume, isFlushed=$isFlushed)")
+
+            Log.i(TAG, "  📊 After flush:")
+            Log.i(TAG, "    - isPlaying: $isPlaying")
+            Log.i(TAG, "    - isPaused: $isPaused")
+            Log.i(TAG, "    - isFlushed: $isFlushed")
+            Log.i(TAG, "    - audioTrack state: ${audioTrack?.playState}")
+            Log.i(TAG, "═══════════════════════════════════════════════════════════")
         } catch (e: Exception) {
-            Log.e(TAG, "Error flushing audio", e)
+            Log.e(TAG, "❌ Error flushing audio", e)
         }
     }
 

@@ -24,6 +24,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ai_guardian_companion.storage.FileManager
+import com.example.ai_guardian_companion.ui.AppStrings
+import com.example.ai_guardian_companion.ui.LocalStrings
 import com.example.ai_guardian_companion.ui.viewmodel.HistoryViewModel
 import com.example.ai_guardian_companion.ui.viewmodel.TurnWithImages
 import android.media.MediaPlayer
@@ -42,6 +44,7 @@ fun SessionDetailScreen(
     onNavigateBack: () -> Unit,
     viewModel: HistoryViewModel = viewModel()
 ) {
+    val strings = LocalStrings.current
     // 选择会话
     LaunchedEffect(sessionId) {
         viewModel.selectSession(sessionId)
@@ -58,7 +61,7 @@ fun SessionDetailScreen(
                 title = {
                     Column {
                         Text(
-                            text = "会话详情",
+                            text = strings.sessionDetail,
                             fontWeight = FontWeight.Bold
                         )
                         session?.let {
@@ -74,7 +77,7 @@ fun SessionDetailScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "返回"
+                            contentDescription = strings.back
                         )
                     }
                 },
@@ -108,11 +111,11 @@ fun SessionDetailScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             InfoItem(
-                                label = "开始时间",
+                                label = strings.startTime,
                                 value = formatTime(sess.startTime)
                             )
                             InfoItem(
-                                label = "轮次",
+                                label = strings.turns,
                                 value = "${sess.totalTurns}"
                             )
                         }
@@ -125,12 +128,12 @@ fun SessionDetailScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 InfoItem(
-                                    label = "结束时间",
+                                    label = strings.endTime,
                                     value = formatTime(sess.endTime!!)
                                 )
                                 InfoItem(
-                                    label = "时长",
-                                    value = formatDuration((sess.endTime!! - sess.startTime) / 1000)
+                                    label = strings.duration,
+                                    value = formatDuration((sess.endTime!! - sess.startTime) / 1000, strings)
                                 )
                             }
                         }
@@ -145,7 +148,7 @@ fun SessionDetailScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "暂无对话记录",
+                        text = strings.noRecords,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
@@ -209,7 +212,7 @@ private fun formatTime(timestamp: Long): String {
 /**
  * 格式化时长
  */
-private fun formatDuration(seconds: Long): String {
+private fun formatDuration(seconds: Long, strings: AppStrings): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
     val secs = seconds % 60
@@ -217,7 +220,7 @@ private fun formatDuration(seconds: Long): String {
     return when {
         hours > 0 -> String.format("%d:%02d:%02d", hours, minutes, secs)
         minutes > 0 -> String.format("%d:%02d", minutes, secs)
-        else -> "${secs}秒"
+        else -> "$secs${strings.seconds}"
     }
 }
 
@@ -230,12 +233,13 @@ fun TurnItemWithMedia(
     sessionId: String,
     fileManager: FileManager
 ) {
+    val strings = LocalStrings.current
     val turn = turnWithImages.turn
     val images = turnWithImages.images
     val isUser = turn.speaker == "user"
     val speakerIcon = if (isUser) Icons.Default.Person else Icons.Default.Star
     val speakerColor = if (isUser) MaterialTheme.colorScheme.primary else Color(0xFF4CAF50)
-    val speakerLabel = if (isUser) "用户" else "AI"
+    val speakerLabel = if (isUser) strings.user else strings.ai
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -321,14 +325,14 @@ fun TurnItemWithMedia(
             ) {
                 if (turn.duration > 0) {
                     Text(
-                        text = "时长: ${turn.duration / 1000}秒",
+                        text = "${strings.duration}: ${turn.duration / 1000}${strings.seconds}",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
                 if (turn.interrupted) {
                     Text(
-                        text = "被打断",
+                        text = strings.interrupted,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
                     )
@@ -346,7 +350,8 @@ fun ImageThumbnail(
     imageFile: File,
     role: String
 ) {
-    val roleLabel = if (role == "ambient") "环境帧" else "锚点帧"
+    val strings = LocalStrings.current
+    val roleLabel = if (role == "ambient") strings.ambientFrame else strings.anchorFrame
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
@@ -380,6 +385,7 @@ fun AudioPlayButton(
     audioFile: File,
     speaker: String
 ) {
+    val strings = LocalStrings.current
     var isPlaying by remember { mutableStateOf(false) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -411,7 +417,7 @@ fun AudioPlayButton(
             modifier = Modifier
                 .clickable {
                     if (!audioFile.exists()) {
-                        errorMessage = "音频文件不存在"
+                        errorMessage = strings.audioNotFound
                         return@clickable
                     }
 
@@ -429,7 +435,7 @@ fun AudioPlayButton(
                             errorMessage = null
                         } catch (e: Exception) {
                             Log.e("AudioPlayButton", "Error stopping playback", e)
-                            errorMessage = "停止失败: ${e.message}"
+                            errorMessage = "${strings.stopFailed}: ${e.message}"
                         }
                     } else {
                         // 开始播放
@@ -445,7 +451,7 @@ fun AudioPlayButton(
                                 }
                                 setOnErrorListener { _, what, extra ->
                                     Log.e("AudioPlayButton", "MediaPlayer error: what=$what, extra=$extra")
-                                    errorMessage = "播放错误: $what"
+                                    errorMessage = "${strings.playbackError}: $what"
                                     isPlaying = false
                                     true
                                 }
@@ -457,7 +463,7 @@ fun AudioPlayButton(
                             Log.d("AudioPlayButton", "Started playing: ${audioFile.absolutePath}")
                         } catch (e: Exception) {
                             Log.e("AudioPlayButton", "Error starting playback", e)
-                            errorMessage = "播放失败: ${e.message}"
+                            errorMessage = "${strings.playFailed}: ${e.message}"
                             isPlaying = false
                         }
                     }
@@ -467,16 +473,16 @@ fun AudioPlayButton(
         ) {
             Icon(
                 imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
-                contentDescription = if (isPlaying) "停止" else "播放",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
                     text = if (audioFile.exists()) {
-                        "${speaker}音频 (${audioFile.length() / 1024} KB)"
+                        "$speaker ${strings.audioLabel} (${audioFile.length() / 1024} KB)"
                     } else {
-                        "音频文件不存在"
+                        strings.audioNotFound
                     },
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSecondaryContainer

@@ -18,9 +18,22 @@ class SettingsDataStore(private val context: Context) {
         private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("settings")
         private val API_KEY = stringPreferencesKey("openai_api_key")
         private val MODEL_NAME = stringPreferencesKey("model_name")
+        private val VOICE_LANGUAGE = stringPreferencesKey("voice_language")
 
-        // 默认模型
-        const val DEFAULT_MODEL = "gpt-4o-realtime-preview-2024-12-17"
+        // Realtime 模型选项
+        const val MODEL_REALTIME_MINI = "gpt-realtime-mini-2025-12-15"
+        const val MODEL_REALTIME = "gpt-realtime-2025-08-28"
+        const val MODEL_4O_REALTIME = "gpt-4o-realtime-preview"  // 支持视觉
+
+        // 默认模型 (mini 版本更经济)
+        const val DEFAULT_MODEL = MODEL_REALTIME_MINI
+
+        // 默认语音语言
+        const val DEFAULT_VOICE_LANGUAGE = "en"  // 默认英语
+
+        // 支持的语言
+        const val VOICE_LANGUAGE_ENGLISH = "en"
+        const val VOICE_LANGUAGE_CHINESE = "zh"
     }
 
     /**
@@ -53,6 +66,22 @@ class SettingsDataStore(private val context: Context) {
      */
     val modelName: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[MODEL_NAME] ?: DEFAULT_MODEL
+    }
+
+    /**
+     * 保存语音语言
+     */
+    suspend fun saveVoiceLanguage(language: String) {
+        context.dataStore.edit { preferences ->
+            preferences[VOICE_LANGUAGE] = language
+        }
+    }
+
+    /**
+     * 获取语音语言
+     */
+    val voiceLanguage: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[VOICE_LANGUAGE] ?: DEFAULT_VOICE_LANGUAGE
     }
 
     /**

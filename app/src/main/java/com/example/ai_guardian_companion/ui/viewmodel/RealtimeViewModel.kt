@@ -7,6 +7,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.example.ai_guardian_companion.conversation.ConversationManager
 import com.example.ai_guardian_companion.conversation.ConversationState
+import com.example.ai_guardian_companion.storage.SettingsDataStore
+import com.example.ai_guardian_companion.ui.getStrings
 import com.example.ai_guardian_companion.ui.model.ConversationMessage
 import com.example.ai_guardian_companion.ui.model.SessionStats
 import kotlinx.coroutines.flow.*
@@ -27,6 +29,7 @@ class RealtimeViewModel(application: Application) : AndroidViewModel(application
 
     private var conversationManager: ConversationManager? = null
     private var lifecycleOwner: LifecycleOwner? = null
+    private val settingsDataStore = SettingsDataStore(application)
 
     private val _uiState = MutableStateFlow(RealtimeUiState())
     val uiState: StateFlow<RealtimeUiState> = _uiState.asStateFlow()
@@ -42,7 +45,7 @@ class RealtimeViewModel(application: Application) : AndroidViewModel(application
     /**
      * 初始化对话管理器
      */
-    fun initialize(lifecycleOwner: LifecycleOwner, apiKey: String) {
+    fun initialize(lifecycleOwner: LifecycleOwner, apiKey: String, modelName: String) {
         if (conversationManager != null) {
             Log.w(TAG, "ConversationManager already initialized")
             return
@@ -54,7 +57,8 @@ class RealtimeViewModel(application: Application) : AndroidViewModel(application
         conversationManager = ConversationManager(
             context = getApplication(),
             lifecycleOwner = lifecycleOwner,
-            apiKey = apiKey
+            apiKey = apiKey,
+            modelName = modelName
         )
 
         // 初始化
@@ -105,7 +109,11 @@ class RealtimeViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            val result = conversationManager?.startSession()
+            // 获取语音语言设置
+            val voiceLanguage = settingsDataStore.voiceLanguage.first()
+            Log.d(TAG, "🌐 Starting session with voice language: $voiceLanguage")
+
+            val result = conversationManager?.startSession(voiceLanguage)
             if (result?.isSuccess == true) {
                 val sessionId = result.getOrNull()!!
                 _uiState.update {
@@ -118,10 +126,11 @@ class RealtimeViewModel(application: Application) : AndroidViewModel(application
                 Log.d(TAG, "Session started: $sessionId")
             } else {
                 val error = result?.exceptionOrNull()?.message ?: "Unknown error"
+                val strings = getStrings(voiceLanguage)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = "启动会话失败: $error"
+                        errorMessage = "${strings.sessionStartFailed} $error"
                     )
                 }
                 Log.e(TAG, "Failed to start session: $error")

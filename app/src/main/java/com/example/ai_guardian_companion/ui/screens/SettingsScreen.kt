@@ -26,6 +26,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ai_guardian_companion.storage.SettingsDataStore
+import com.example.ai_guardian_companion.ui.LocalStrings
 import com.example.ai_guardian_companion.ui.viewmodel.SettingsViewModel
 
 /**
@@ -37,6 +39,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     viewModel: SettingsViewModel = viewModel()
 ) {
+    val strings = LocalStrings.current
     val uiState by viewModel.uiState.collectAsState()
     var showApiKey by remember { mutableStateOf(false) }
     var selectedImageBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -71,7 +74,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "设置",
+                        text = strings.settingsTitle,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -79,7 +82,7 @@ fun SettingsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "返回"
+                            contentDescription = strings.back
                         )
                     }
                 },
@@ -99,7 +102,7 @@ fun SettingsScreen(
         ) {
             // API Key 设置
             Text(
-                text = "OpenAI API 配置",
+                text = strings.openaiApiConfig,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -111,8 +114,8 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = uiState.apiKey,
                 onValueChange = { viewModel.updateApiKey(it) },
-                label = { Text("API Key") },
-                placeholder = { Text("sk-...") },
+                label = { Text(strings.apiKey) },
+                placeholder = { Text(strings.apiKeyPlaceholder) },
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = if (showApiKey) {
                     VisualTransformation.None
@@ -139,26 +142,139 @@ fun SettingsScreen(
 
             // 获取 API Key 提示
             Text(
-                text = "在 platform.openai.com 获取您的 API Key",
+                text = strings.apiKeyHint,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 模型选择
-            OutlinedTextField(
-                value = uiState.modelName,
-                onValueChange = { viewModel.updateModelName(it) },
-                label = { Text("模型名称") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+            // 实时对话模型选择
+            Text(
+                text = strings.realtimeModel,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Mini 模型选项
+                FilterChip(
+                    selected = uiState.modelName == SettingsDataStore.MODEL_REALTIME_MINI,
+                    onClick = { viewModel.updateModelName(SettingsDataStore.MODEL_REALTIME_MINI) },
+                    label = {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Text(strings.modelMini, fontWeight = FontWeight.Medium)
+                            Text(
+                                strings.modelMiniDesc,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = if (uiState.modelName == SettingsDataStore.MODEL_REALTIME_MINI) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    } else null
+                )
+
+                // 标准模型选项
+                FilterChip(
+                    selected = uiState.modelName == SettingsDataStore.MODEL_REALTIME,
+                    onClick = { viewModel.updateModelName(SettingsDataStore.MODEL_REALTIME) },
+                    label = {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Text(strings.modelStandard, fontWeight = FontWeight.Medium)
+                            Text(
+                                strings.modelStandardDesc,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = if (uiState.modelName == SettingsDataStore.MODEL_REALTIME) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    } else null
+                )
+
+                // GPT-4o Realtime 模型选项（支持视觉）
+                FilterChip(
+                    selected = uiState.modelName == SettingsDataStore.MODEL_4O_REALTIME,
+                    onClick = { viewModel.updateModelName(SettingsDataStore.MODEL_4O_REALTIME) },
+                    label = {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Text(strings.model4oRealtime, fontWeight = FontWeight.Medium)
+                            Text(
+                                strings.model4oRealtimeDesc,
+                                fontSize = 11.sp,
+                                color = Color(0xFF4CAF50)  // 绿色高亮表示支持视觉
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = if (uiState.modelName == SettingsDataStore.MODEL_4O_REALTIME) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    } else null
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Text(
-                text = "默认: gpt-4o-realtime-preview-2024-12-17",
+                text = strings.realtimeModelHint,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 语音语言选择
+            Text(
+                text = strings.voiceLanguage,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 英语选项
+                FilterChip(
+                    selected = uiState.voiceLanguage == "en",
+                    onClick = { viewModel.updateVoiceLanguage("en") },
+                    label = { Text(strings.english) },
+                    modifier = Modifier.weight(1f),
+                    leadingIcon = if (uiState.voiceLanguage == "en") {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    } else null
+                )
+
+                // 中文选项
+                FilterChip(
+                    selected = uiState.voiceLanguage == "zh",
+                    onClick = { viewModel.updateVoiceLanguage("zh") },
+                    label = { Text(strings.chinese) },
+                    modifier = Modifier.weight(1f),
+                    leadingIcon = if (uiState.voiceLanguage == "zh") {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    } else null
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = strings.voiceLanguageHint,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
@@ -181,14 +297,14 @@ fun SettingsScreen(
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("测试中...")
+                    Text(strings.testing)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("测试基础连接")
+                    Text(strings.testBasicConnection)
                 }
             }
 
@@ -252,14 +368,14 @@ fun SettingsScreen(
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("测试中...")
+                    Text(strings.testing)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Star,
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("测试 Realtime API（完整测试）")
+                    Text(strings.testRealtimeApi)
                 }
             }
 
@@ -311,7 +427,7 @@ fun SettingsScreen(
 
             // 图片识别测试
             Text(
-                text = "图片识别测试",
+                text = strings.imageRecognitionTest,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -329,7 +445,7 @@ fun SettingsScreen(
                     contentDescription = null
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(if (selectedImageBitmap != null) "更换图片" else "选择图片")
+                Text(if (selectedImageBitmap != null) strings.changeImage else strings.selectImage)
             }
 
             // 图片预览
@@ -345,7 +461,7 @@ fun SettingsScreen(
                 ) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "预览图片",
+                        contentDescription = strings.previewImage,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
                     )
@@ -375,14 +491,14 @@ fun SettingsScreen(
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("测试中...")
+                        Text(strings.testing)
                     } else {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = null
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("测试图片识别")
+                        Text(strings.testImageRecognition)
                     }
                 }
             }
@@ -421,8 +537,8 @@ fun SettingsScreen(
 
                             Text(
                                 text = when (result) {
-                                    SettingsViewModel.TestResult.SUCCESS -> "识别成功"
-                                    SettingsViewModel.TestResult.FAILED -> "识别失败"
+                                    SettingsViewModel.TestResult.SUCCESS -> strings.recognitionSuccess
+                                    SettingsViewModel.TestResult.FAILED -> strings.recognitionFailed
                                 },
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
@@ -460,7 +576,7 @@ fun SettingsScreen(
                     contentDescription = null
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("保存设置")
+                Text(strings.saveSettings)
             }
 
             // 保存成功提示
@@ -485,7 +601,7 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         Text(
-                            text = "设置已保存",
+                            text = strings.settingsSaved,
                             fontSize = 14.sp,
                             color = Color(0xFF4CAF50)
                         )
@@ -527,7 +643,7 @@ fun SettingsScreen(
 
             // 使用说明
             Text(
-                text = "使用说明",
+                text = strings.usageInstructions,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -536,12 +652,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = """
-                    1. 在 OpenAI 平台获取 API Key
-                    2. 输入 API Key 并测试连接
-                    3. 保存设置后即可使用实时对话功能
-                    4. API Key 将安全地存储在本地设备
-                """.trimIndent(),
+                text = "${strings.usageStep1}\n${strings.usageStep2}\n${strings.usageStep3}\n${strings.usageStep4}",
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 lineHeight = 20.sp

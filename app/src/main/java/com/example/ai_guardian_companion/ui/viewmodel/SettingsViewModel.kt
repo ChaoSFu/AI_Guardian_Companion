@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai_guardian_companion.storage.SettingsDataStore
+import com.example.ai_guardian_companion.ui.getStrings
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val settingsDataStore = SettingsDataStore(application)
 
+    // Helper to get current localized strings
+    private fun strings() = getStrings(_uiState.value.voiceLanguage)
+
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -42,6 +46,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             settingsDataStore.modelName.collect { modelName ->
                 _uiState.update { it.copy(modelName = modelName) }
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.voiceLanguage.collect { language ->
+                _uiState.update { it.copy(voiceLanguage = language) }
             }
         }
     }
@@ -61,6 +70,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
+     * 更新语音语言
+     */
+    fun updateVoiceLanguage(language: String) {
+        _uiState.update { it.copy(voiceLanguage = language) }
+    }
+
+    /**
      * 保存设置
      */
     fun saveSettings() {
@@ -68,6 +84,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             try {
                 settingsDataStore.saveApiKey(_uiState.value.apiKey)
                 settingsDataStore.saveModelName(_uiState.value.modelName)
+                settingsDataStore.saveVoiceLanguage(_uiState.value.voiceLanguage)
                 _uiState.update {
                     it.copy(
                         saveSuccess = true,
@@ -79,7 +96,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update {
                     it.copy(
                         saveSuccess = false,
-                        errorMessage = "保存失败: ${e.message}"
+                        errorMessage = "${strings().saveFailed} ${e.message}"
                     )
                 }
                 Log.e(TAG, "Failed to save settings", e)
@@ -97,7 +114,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _uiState.update {
                 it.copy(
                     testResult = TestResult.FAILED,
-                    testMessage = "请先输入 API Key"
+                    testMessage = strings().enterApiKeyFirst
                 )
             }
             return
@@ -139,7 +156,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         it.copy(
                             isTesting = false,
                             testResult = TestResult.SUCCESS,
-                            testMessage = "连接成功！可用模型数: $modelCount"
+                            testMessage = "${strings().connectionSuccessModels} $modelCount"
                         )
                     }
                     Log.d(TAG, "API test successful: $modelCount models available")
@@ -156,7 +173,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         it.copy(
                             isTesting = false,
                             testResult = TestResult.FAILED,
-                            testMessage = "连接失败: $errorMsg (${response.code})"
+                            testMessage = "${strings().connectionFailedError} $errorMsg (${response.code})"
                         )
                     }
                     Log.e(TAG, "API test failed: ${response.code} - $errorMsg")
@@ -168,7 +185,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isTesting = false,
                         testResult = TestResult.FAILED,
-                        testMessage = "连接失败: ${e.message}"
+                        testMessage = "${strings().connectionFailedError} ${e.message}"
                     )
                 }
                 Log.e(TAG, "API test error", e)
@@ -205,7 +222,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _uiState.update {
                 it.copy(
                     realtimeTestResult = TestResult.FAILED,
-                    realtimeTestMessage = "请先输入 API Key"
+                    realtimeTestMessage = strings().enterApiKeyFirst
                 )
             }
             return
@@ -276,7 +293,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                                     it.copy(
                                         isTestingRealtime = false,
                                         realtimeTestResult = TestResult.SUCCESS,
-                                        realtimeTestMessage = "Realtime API 测试成功！模型已正常响应（状态: $status）"
+                                        realtimeTestMessage = "${strings().realtimeTestSuccess} $status)"
                                     )
                                 }
                             } else {
@@ -284,7 +301,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                                     it.copy(
                                         isTestingRealtime = false,
                                         realtimeTestResult = TestResult.FAILED,
-                                        realtimeTestMessage = "响应状态异常: $status"
+                                        realtimeTestMessage = "${strings().responseStatusError} $status"
                                     )
                                 }
                             }
@@ -303,7 +320,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                             it.copy(
                                 isTestingRealtime = false,
                                 realtimeTestResult = TestResult.FAILED,
-                                realtimeTestMessage = "服务器错误: ${message.error.message}"
+                                realtimeTestMessage = "${strings().serverError} ${message.error.message}"
                             )
                         }
                         testWebSocket?.disconnect()
@@ -315,7 +332,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                             it.copy(
                                 isTestingRealtime = false,
                                 realtimeTestResult = TestResult.FAILED,
-                                realtimeTestMessage = "连接失败: ${error.message}"
+                                realtimeTestMessage = "${strings().connectionFailedError} ${error.message}"
                             )
                         }
                         testWebSocket?.disconnect()
@@ -324,8 +341,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     override fun onMaxReconnectAttemptsReached() {}
                 }
 
-                // 创建 WebSocket 连接
-                testWebSocket = com.example.ai_guardian_companion.openai.RealtimeWebSocket(apiKey, callback)
+                // 创建 WebSocket 连接（使用当前选择的模型）
+                testWebSocket = com.example.ai_guardian_companion.openai.RealtimeWebSocket(apiKey, callback, _uiState.value.modelName)
                 testWebSocket?.connect()
 
                 // 设置超时
@@ -335,7 +352,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         it.copy(
                             isTestingRealtime = false,
                             realtimeTestResult = TestResult.FAILED,
-                            realtimeTestMessage = "测试超时：15秒内未收到响应"
+                            realtimeTestMessage = strings().testTimeout
                         )
                     }
                     testWebSocket?.disconnect()
@@ -345,7 +362,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isTestingRealtime = false,
                         realtimeTestResult = TestResult.FAILED,
-                        realtimeTestMessage = "测试失败: ${e.message}"
+                        realtimeTestMessage = "${strings().testFailed} ${e.message}"
                     )
                 }
                 testWebSocket?.disconnect()
@@ -371,7 +388,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         content = listOf(
                             com.example.ai_guardian_companion.openai.ClientMessage.ConversationItemCreate.Content(
                                 type = "input_text",
-                                text = "你好，请用一句话回复我，证明你能正常工作。"
+                                text = strings().testMessagePrompt
                             )
                         )
                     )
@@ -392,7 +409,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isTestingRealtime = false,
                         realtimeTestResult = TestResult.FAILED,
-                        realtimeTestMessage = "发送测试消息失败: ${e.message}"
+                        realtimeTestMessage = "${strings().sendMessageFailed} ${e.message}"
                     )
                 }
                 testWebSocket?.disconnect()
@@ -420,7 +437,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _uiState.update {
                 it.copy(
                     imageTestResult = TestResult.FAILED,
-                    imageTestMessage = "请先设置 API Key"
+                    imageTestMessage = strings().pleaseSetApiKey
                 )
             }
             return
@@ -435,7 +452,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val imageProcessor = com.example.ai_guardian_companion.camera.ImageProcessor
                 val processedImageResult = imageProcessor.processImage(bitmap)
                 if (processedImageResult.isFailure) {
-                    throw Exception("图片处理失败")
+                    throw Exception(strings().imageProcessFailed)
                 }
 
                 val processedImage = processedImageResult.getOrNull()!!
@@ -493,7 +510,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 if (!response.isSuccessful || responseBody == null) {
                     val errorMsg = responseBody ?: "No response body"
                     Log.e(TAG, "❌ API request failed: ${response.code} - $errorMsg")
-                    throw Exception("API 请求失败: ${response.code}")
+                    throw Exception("${strings().apiRequestFailed} ${response.code}")
                 }
 
                 Log.d(TAG, "✅ Received response from API")
@@ -503,7 +520,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val jsonObject = com.google.gson.JsonParser.parseString(responseBody).asJsonObject
                 val choices = jsonObject.getAsJsonArray("choices")
                 if (choices == null || choices.size() == 0) {
-                    throw Exception("响应中没有 choices")
+                    throw Exception(strings().noChoicesInResponse)
                 }
 
                 val firstChoice = choices.get(0).asJsonObject
@@ -511,7 +528,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val content = message.get("content")?.asString
 
                 if (content.isNullOrEmpty()) {
-                    throw Exception("响应中没有内容")
+                    throw Exception(strings().noContentInResponse)
                 }
 
                 Log.d(TAG, "✅ AI Description: $content")
@@ -521,7 +538,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isTestingImage = false,
                         imageTestResult = TestResult.SUCCESS,
-                        imageTestMessage = "AI描述: $content"
+                        imageTestMessage = "${strings().aiDescription} $content"
                     )
                 }
 
@@ -531,7 +548,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         isTestingImage = false,
                         imageTestResult = TestResult.FAILED,
-                        imageTestMessage = "测试失败: ${e.message}"
+                        imageTestMessage = "${strings().testFailed} ${e.message}"
                     )
                 }
             }
@@ -556,6 +573,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     data class SettingsUiState(
         val apiKey: String = "",
         val modelName: String = SettingsDataStore.DEFAULT_MODEL,
+        val voiceLanguage: String = SettingsDataStore.DEFAULT_VOICE_LANGUAGE,
         val isTesting: Boolean = false,
         val testResult: TestResult? = null,
         val testMessage: String? = null,

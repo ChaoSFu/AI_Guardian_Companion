@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ai_guardian_companion.ui.LocalStrings
 import com.google.accompanist.permissions.*
 
 /**
@@ -25,6 +26,7 @@ import com.google.accompanist.permissions.*
 fun PermissionRequestScreen(
     onPermissionsGranted: () -> Unit
 ) {
+    val strings = LocalStrings.current
     val permissionsState = rememberMultiplePermissionsState(
         permissions = listOf(
             Manifest.permission.CAMERA,
@@ -51,7 +53,7 @@ fun PermissionRequestScreen(
         ) {
             // 标题
             Text(
-                text = "AI Guardian Companion",
+                text = strings.appName,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -61,7 +63,7 @@ fun PermissionRequestScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "需要以下权限来提供服务",
+                text = strings.permissionsNeeded,
                 fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
@@ -72,8 +74,8 @@ fun PermissionRequestScreen(
             // 相机权限
             PermissionItem(
                 icon = Icons.Default.Settings,
-                title = "相机权限",
-                description = "用于捕获环境视觉信息",
+                title = strings.cameraPermission,
+                description = strings.cameraPermissionDesc,
                 isGranted = permissionsState.permissions
                     .find { it.permission == Manifest.permission.CAMERA }
                     ?.status is PermissionStatus.Granted
@@ -84,8 +86,8 @@ fun PermissionRequestScreen(
             // 麦克风权限
             PermissionItem(
                 icon = Icons.Default.Settings,
-                title = "麦克风权限",
-                description = "用于语音对话交互",
+                title = strings.microphonePermission,
+                description = strings.microphonePermissionDesc,
                 isGranted = permissionsState.permissions
                     .find { it.permission == Manifest.permission.RECORD_AUDIO }
                     ?.status is PermissionStatus.Granted
@@ -108,9 +110,9 @@ fun PermissionRequestScreen(
             ) {
                 Text(
                     text = if (permissionsState.allPermissionsGranted) {
-                        "继续"
+                        strings.continueText
                     } else {
-                        "授予权限"
+                        strings.grantPermissions
                     },
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -122,7 +124,7 @@ fun PermissionRequestScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "应用需要这些权限才能正常工作\n您可以随时在系统设置中撤销权限",
+                    text = strings.permissionExplanation,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center
@@ -139,6 +141,7 @@ private fun PermissionItem(
     description: String,
     isGranted: Boolean
 ) {
+    val strings = LocalStrings.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -185,7 +188,7 @@ private fun PermissionItem(
             if (isGranted) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "已授予",
+                    contentDescription = strings.granted,
                     tint = Color(0xFF4CAF50),
                     modifier = Modifier.size(24.dp)
                 )

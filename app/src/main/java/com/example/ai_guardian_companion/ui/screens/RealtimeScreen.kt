@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ai_guardian_companion.conversation.ConversationState
+import com.example.ai_guardian_companion.ui.LocalStrings
 import com.example.ai_guardian_companion.ui.viewmodel.RealtimeViewModel
 
 /**
@@ -38,9 +39,11 @@ import com.example.ai_guardian_companion.ui.viewmodel.RealtimeViewModel
 @Composable
 fun RealtimeScreen(
     apiKey: String,
+    modelName: String,
     onNavigateBack: () -> Unit = {},
     viewModel: RealtimeViewModel = viewModel()
 ) {
+    val strings = LocalStrings.current
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
@@ -50,7 +53,7 @@ fun RealtimeScreen(
 
     // 初始化 ViewModel
     LaunchedEffect(Unit) {
-        viewModel.initialize(lifecycleOwner, apiKey)
+        viewModel.initialize(lifecycleOwner, apiKey, modelName)
     }
 
     // 处理系统返回按钮和导航返回
@@ -74,7 +77,7 @@ fun RealtimeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "AI Guardian Companion",
+                        text = strings.appName,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -82,7 +85,7 @@ fun RealtimeScreen(
                     IconButton(onClick = { handleBack() }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "返回"
+                            contentDescription = strings.back
                         )
                     }
                 },
@@ -158,8 +161,8 @@ fun RealtimeScreen(
     if (showExitDialog) {
         AlertDialog(
             onDismissRequest = { showExitDialog = false },
-            title = { Text("退出会话") },
-            text = { Text("会话正在进行中，确定要退出吗？退出后会话将自动结束。") },
+            title = { Text(strings.exitSession) },
+            text = { Text(strings.exitSessionMessage) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -168,12 +171,12 @@ fun RealtimeScreen(
                         onNavigateBack()
                     }
                 ) {
-                    Text("确定", color = MaterialTheme.colorScheme.error)
+                    Text(strings.confirm, color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showExitDialog = false }) {
-                    Text("取消")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -208,11 +211,12 @@ fun StateIndicator(
     conversationState: ConversationState,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalStrings.current
     val (text, color) = when (conversationState) {
-        ConversationState.IDLE -> "空闲" to Color.Gray
-        ConversationState.LISTENING -> "聆听中..." to Color(0xFF4CAF50)
-        ConversationState.MODEL_SPEAKING -> "回应中..." to Color(0xFF2196F3)
-        ConversationState.INTERRUPTING -> "打断中..." to Color(0xFFFFA000)
+        ConversationState.IDLE -> strings.stateIdle to Color.Gray
+        ConversationState.LISTENING -> strings.stateListening to Color(0xFF4CAF50)
+        ConversationState.MODEL_SPEAKING -> strings.stateModelSpeaking to Color(0xFF2196F3)
+        ConversationState.INTERRUPTING -> strings.stateInterrupting to Color(0xFFFFA000)
     }
 
     Surface(
@@ -241,6 +245,7 @@ fun ControlButtons(
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalStrings.current
     if (!isSessionActive) {
         // 开始通话按钮
         FloatingActionButton(
@@ -252,7 +257,7 @@ fun ControlButtons(
         ) {
             Icon(
                 imageVector = Icons.Default.Call,
-                contentDescription = "开始通话",
+                contentDescription = strings.startCall,
                 modifier = Modifier.size(36.dp)
             )
         }
@@ -267,7 +272,7 @@ fun ControlButtons(
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "结束通话",
+                contentDescription = strings.endCall,
                 modifier = Modifier.size(36.dp)
             )
         }
@@ -283,6 +288,7 @@ fun ErrorSnackbar(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalStrings.current
     Surface(
         modifier = modifier.fillMaxWidth(0.9f),
         shape = RoundedCornerShape(8.dp),
@@ -303,7 +309,7 @@ fun ErrorSnackbar(
 
             TextButton(onClick = onDismiss) {
                 Text(
-                    text = "关闭",
+                    text = strings.close,
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )

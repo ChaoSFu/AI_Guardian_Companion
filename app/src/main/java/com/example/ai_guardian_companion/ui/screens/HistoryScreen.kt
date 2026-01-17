@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ai_guardian_companion.storage.entity.SessionEntity
+import com.example.ai_guardian_companion.ui.AppStrings
+import com.example.ai_guardian_companion.ui.LocalStrings
 import com.example.ai_guardian_companion.ui.viewmodel.HistoryViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -31,6 +33,7 @@ fun HistoryScreen(
     onNavigateToDetail: (String) -> Unit,
     viewModel: HistoryViewModel = viewModel()
 ) {
+    val strings = LocalStrings.current
     val sessions by viewModel.sessions.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -39,7 +42,7 @@ fun HistoryScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "历史记录",
+                        text = strings.historyTitle,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -47,7 +50,7 @@ fun HistoryScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "返回"
+                            contentDescription = strings.back
                         )
                     }
                 },
@@ -56,7 +59,7 @@ fun HistoryScreen(
                         IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "清空历史"
+                                contentDescription = strings.clearHistory
                             )
                         }
                     }
@@ -89,7 +92,7 @@ fun HistoryScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "暂无历史记录",
+                        text = strings.noHistory,
                         fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
@@ -97,7 +100,7 @@ fun HistoryScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "开始一个会话后，历史记录将显示在这里",
+                        text = strings.noHistoryHint,
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                     )
@@ -127,8 +130,8 @@ fun HistoryScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("清空历史记录") },
-            text = { Text("确定要删除所有历史记录吗？此操作无法撤销。") },
+            title = { Text(strings.clearHistory) },
+            text = { Text(strings.clearHistoryConfirm) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -136,12 +139,12 @@ fun HistoryScreen(
                         showDeleteDialog = false
                     }
                 ) {
-                    Text("确定", color = MaterialTheme.colorScheme.error)
+                    Text(strings.confirm, color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -158,6 +161,7 @@ fun SessionItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val strings = LocalStrings.current
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Surface(
@@ -211,7 +215,7 @@ fun SessionItem(
 
                     val duration = (session.endTime!! - session.startTime) / 1000
                     Text(
-                        text = "时长: ${formatDuration(duration)}",
+                        text = "${strings.duration}: ${formatDuration(duration, strings)}",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
@@ -229,7 +233,7 @@ fun SessionItem(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "轮次",
+                    text = strings.turns,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
@@ -241,7 +245,7 @@ fun SessionItem(
             IconButton(onClick = { showDeleteDialog = true }) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "删除",
+                    contentDescription = strings.delete,
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -252,8 +256,8 @@ fun SessionItem(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除会话") },
-            text = { Text("确定要删除这个会话吗？") },
+            title = { Text(strings.deleteSession) },
+            text = { Text(strings.deleteSessionConfirm) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -261,12 +265,12 @@ fun SessionItem(
                         showDeleteDialog = false
                     }
                 ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text(strings.delete, color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -284,7 +288,7 @@ private fun formatTimestamp(timestamp: Long): String {
 /**
  * 格式化时长
  */
-private fun formatDuration(seconds: Long): String {
+private fun formatDuration(seconds: Long, strings: AppStrings): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
     val secs = seconds % 60
@@ -292,6 +296,6 @@ private fun formatDuration(seconds: Long): String {
     return when {
         hours > 0 -> String.format("%d:%02d:%02d", hours, minutes, secs)
         minutes > 0 -> String.format("%d:%02d", minutes, secs)
-        else -> "${secs}秒"
+        else -> "$secs${strings.seconds}"
     }
 }

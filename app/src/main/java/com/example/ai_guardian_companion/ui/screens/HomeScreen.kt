@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ai_guardian_companion.ui.LocalStrings
 
 /**
  * 主屏幕
@@ -24,12 +25,14 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToHistory: () -> Unit
 ) {
+    val strings = LocalStrings.current
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "AI Guardian Companion",
+                        text = strings.appName,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -50,7 +53,7 @@ fun HomeScreen(
         ) {
             // 标题
             Text(
-                text = "AI 守护陪伴",
+                text = strings.homeTitle,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -60,7 +63,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "专为视力障碍和认知障碍人群设计",
+                text = strings.homeSubtitle,
                 fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
@@ -71,8 +74,8 @@ fun HomeScreen(
             // 功能卡片
             MenuCard(
                 icon = Icons.Default.Call,
-                title = "实时对话",
-                description = "与 AI 进行实时语音对话",
+                title = strings.realtimeChat,
+                description = strings.realtimeChatDesc,
                 onClick = onNavigateToSession
             )
 
@@ -80,8 +83,8 @@ fun HomeScreen(
 
             MenuCard(
                 icon = Icons.Default.Star,
-                title = "历史记录",
-                description = "查看过往对话记录",
+                title = strings.history,
+                description = strings.historyDesc,
                 onClick = onNavigateToHistory
             )
 
@@ -89,8 +92,8 @@ fun HomeScreen(
 
             MenuCard(
                 icon = Icons.Default.Settings,
-                title = "设置",
-                description = "配置 API Key 和其他选项",
+                title = strings.settings,
+                description = strings.settingsDesc,
                 onClick = onNavigateToSettings
             )
 
@@ -115,7 +118,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Text(
-                        text = "首次使用请先在设置中配置 API Key",
+                        text = strings.homeHint,
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
@@ -186,7 +189,7 @@ fun MenuCard(
 
             Icon(
                 imageVector = Icons.Default.ArrowForward,
-                contentDescription = "前往",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }

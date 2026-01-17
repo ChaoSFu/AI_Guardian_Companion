@@ -23,10 +23,13 @@ class VadDetector {
         private const val TAG = "VadDetector"
 
         // 阈值配置
-        private val ENERGY_THRESHOLD = RealtimeConfig.Vad.ENERGY_THRESHOLD  // 1000.0f
+        private val ENERGY_THRESHOLD = RealtimeConfig.Vad.ENERGY_THRESHOLD  // 30.0f
         private val SPEECH_START_THRESHOLD_MS = RealtimeConfig.Vad.SPEECH_START_THRESHOLD_MS  // 200ms
         private val SPEECH_END_THRESHOLD_MS = RealtimeConfig.Vad.SPEECH_END_THRESHOLD_MS  // 500ms
         private const val CHUNK_DURATION_MS = 20L  // 20ms per chunk
+
+        // 打断模式的阈值倍数（AI 说话时提高阈值，避免回声触发）
+        private const val INTERRUPT_THRESHOLD_MULTIPLIER = 3.0f
     }
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -38,6 +41,9 @@ class VadDetector {
     private var consecutiveSpeechChunks = 0
     private var consecutiveSilenceChunks = 0
 
+    // 打断模式：AI 说话时启用，提高阈值避免回声触发
+    @Volatile private var interruptMode = false
+
     private val speechStartThresholdChunks = (SPEECH_START_THRESHOLD_MS / CHUNK_DURATION_MS).toInt()
     private val speechEndThresholdChunks = (SPEECH_END_THRESHOLD_MS / CHUNK_DURATION_MS).toInt()
 
@@ -45,7 +51,16 @@ class VadDetector {
      * 处理音频 chunk
      */
     suspend fun processAudioChunk(chunk: AudioInputManager.AudioChunk) {
-        val isSpeech = chunk.rmsEnergy > ENERGY_THRESHOLD
+        // 根据模式选择阈值
+        // 打断模式：提高阈值，避免 AI 回声触发 VAD
+        // 正常模式：使用标准阈值
+        val currentThreshold = if (interruptMode) {
+            ENERGY_THRESHOLD * INTERRUPT_THRESHOLD_MULTIPLIER
+        } else {
+            ENERGY_THRESHOLD
+        }
+
+        val isSpeech = chunk.rmsEnergy > currentThreshold
 
         when (state) {
             VadState.SILENCE -> {
@@ -55,14 +70,16 @@ class VadDetector {
 
                     // Log progress towards speech detection
                     if (consecutiveSpeechChunks == 1 || consecutiveSpeechChunks % 5 == 0) {
-                        Log.v(TAG, "🔊 Energy above threshold: ${chunk.rmsEnergy} > $ENERGY_THRESHOLD, chunks: $consecutiveSpeechChunks/$speechStartThresholdChunks")
+                        val modeStr = if (interruptMode) "INTERRUPT_MODE" else "NORMAL"
+                        Log.v(TAG, "🔊 [$modeStr] Energy above threshold: ${chunk.rmsEnergy} > $currentThreshold, chunks: $consecutiveSpeechChunks/$speechStartThresholdChunks")
                     }
 
                     if (consecutiveSpeechChunks >= speechStartThresholdChunks) {
                         // 检测到语音开始
                         state = VadState.SPEECH
                         consecutiveSpeechChunks = 0
-                        Log.i(TAG, "🎤 Speech STARTED (energy=${chunk.rmsEnergy}, threshold=$ENERGY_THRESHOLD)")
+                        val modeStr = if (interruptMode) "INTERRUPT" else "NORMAL"
+                        Log.i(TAG, "🎤 Speech STARTED [$modeStr] (energy=${chunk.rmsEnergy}, threshold=$currentThreshold)")
                         _vadEvents.emit(VadEvent.SpeechStart(chunk.timestamp))
                     }
                 } else {
@@ -80,14 +97,14 @@ class VadDetector {
 
                     // Log progress towards silence detection
                     if (consecutiveSilenceChunks == 1 || consecutiveSilenceChunks % 10 == 0) {
-                        Log.v(TAG, "🔉 Energy below threshold: ${chunk.rmsEnergy} < $ENERGY_THRESHOLD, chunks: $consecutiveSilenceChunks/$speechEndThresholdChunks")
+                        Log.v(TAG, "🔉 Energy below threshold: ${chunk.rmsEnergy} < $currentThreshold, chunks: $consecutiveSilenceChunks/$speechEndThresholdChunks")
                     }
 
                     if (consecutiveSilenceChunks >= speechEndThresholdChunks) {
                         // 检测到语音停止
                         state = VadState.SILENCE
                         consecutiveSilenceChunks = 0
-                        Log.i(TAG, "🔇 Speech STOPPED (energy=${chunk.rmsEnergy}, threshold=$ENERGY_THRESHOLD)")
+                        Log.i(TAG, "🔇 Speech STOPPED (energy=${chunk.rmsEnergy}, threshold=$currentThreshold)")
                         _vadEvents.emit(VadEvent.SpeechEnd(chunk.timestamp))
                     }
                 } else {
@@ -109,6 +126,33 @@ class VadDetector {
         consecutiveSilenceChunks = 0
         Log.d(TAG, "VAD state reset")
     }
+
+    /**
+     * 启用打断模式
+     * AI 说话时调用，提高 VAD 阈值避免回声触发
+     */
+    fun enableInterruptMode() {
+        interruptMode = true
+        // 同时重置 VAD 状态，让用户说话可以重新触发 SpeechStart
+        state = VadState.SILENCE
+        consecutiveSpeechChunks = 0
+        consecutiveSilenceChunks = 0
+        Log.i(TAG, "🔄 Interrupt mode ENABLED (threshold multiplier: ${INTERRUPT_THRESHOLD_MULTIPLIER}x)")
+    }
+
+    /**
+     * 禁用打断模式
+     * AI 说完话后调用，恢复正常 VAD 阈值
+     */
+    fun disableInterruptMode() {
+        interruptMode = false
+        Log.i(TAG, "🔄 Interrupt mode DISABLED (normal threshold)")
+    }
+
+    /**
+     * 检查是否在打断模式
+     */
+    fun isInterruptMode(): Boolean = interruptMode
 
     /**
      * 获取当前状态

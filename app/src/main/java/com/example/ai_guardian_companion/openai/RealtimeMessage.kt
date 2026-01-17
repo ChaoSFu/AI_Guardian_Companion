@@ -152,13 +152,10 @@ sealed class ClientMessage {
             @SerializedName("audio")
             val audio: String? = null,
 
+            // ✅ 修复：image_url 应该是字符串，不是嵌套对象
+            // 格式: "data:image/jpeg;base64,<base64>"
             @SerializedName("image_url")
-            val imageUrl: ImageUrl? = null
-        )
-
-        data class ImageUrl(
-            @SerializedName("url")
-            val url: String  // data:image/jpeg;base64,<base64>
+            val imageUrl: String? = null
         )
     }
 

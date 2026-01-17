@@ -22,7 +22,8 @@ import java.util.concurrent.TimeUnit
  */
 class RealtimeWebSocket(
     private val apiKey: String,
-    private val callback: RealtimeCallback
+    private val callback: RealtimeCallback,
+    private val modelName: String = "gpt-realtime-mini-2025-12-15"
 ) {
     companion object {
         private const val TAG = "RealtimeWebSocket"
@@ -74,7 +75,7 @@ class RealtimeWebSocket(
     private fun doConnect() {
         _connectionState.value = ConnectionState.Connecting
 
-        val url = "${RealtimeConfig.WEBSOCKET_URL}?model=${RealtimeConfig.MODEL_NAME}"
+        val url = "${RealtimeConfig.WEBSOCKET_URL}?model=$modelName"
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $apiKey")
@@ -157,14 +158,40 @@ class RealtimeWebSocket(
 
         return try {
             val json = gson.toJson(message)
-            // 对于音频数据，只记录类型；其他消息记录完整内容
-            if (message.type == "input_audio_buffer.append") {
-                Log.d(TAG, "📤 Sending: ${message.type} (audio data)")
-            } else {
-                Log.d(TAG, "📤 Sending: ${message.type}")
-                Log.v(TAG, "📤 Full message: $json")
+
+            // 🔍 诊断日志：消息发送
+            when (message.type) {
+                "input_audio_buffer.append" -> {
+                    Log.d(TAG, "📤 Sending: ${message.type} (audio data)")
+                }
+                "conversation.item.create" -> {
+                    // 对于 conversation.item.create，记录详细信息但截断 base64 数据
+                    Log.i(TAG, "═══════════════════════════════════════════════════════════")
+                    Log.i(TAG, "📤 SENDING: ${message.type}")
+                    Log.i(TAG, "  📦 JSON length: ${json.length} chars")
+                    // 截断显示，避免 base64 数据过长
+                    val truncatedJson = if (json.length > 500) {
+                        json.take(500) + "... [TRUNCATED, total ${json.length} chars]"
+                    } else {
+                        json
+                    }
+                    Log.i(TAG, "  📦 JSON preview: $truncatedJson")
+                    Log.i(TAG, "═══════════════════════════════════════════════════════════")
+                }
+                "response.cancel" -> {
+                    Log.i(TAG, "🚨 SENDING: response.cancel (interrupt request)")
+                }
+                else -> {
+                    Log.d(TAG, "📤 Sending: ${message.type}")
+                    Log.v(TAG, "📤 Full message: $json")
+                }
             }
-            ws.send(json)
+
+            val result = ws.send(json)
+            if (!result) {
+                Log.e(TAG, "❌ WebSocket.send() returned false for ${message.type}")
+            }
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message", e)
             false

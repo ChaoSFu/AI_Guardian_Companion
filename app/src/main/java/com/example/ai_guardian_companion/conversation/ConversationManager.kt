@@ -29,7 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ConversationManager(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
-    private val apiKey: String
+    private val apiKey: String,
+    private val modelName: String = "gpt-realtime-mini-2025-12-15"
 ) {
     companion object {
         private const val TAG = "ConversationManager"
@@ -91,7 +92,7 @@ class ConversationManager(
      */
     fun initialize() {
         // 初始化 WebSocket
-        realtimeWebSocket = RealtimeWebSocket(apiKey, createWebSocketCallback())
+        realtimeWebSocket = RealtimeWebSocket(apiKey, createWebSocketCallback(), modelName)
 
         // 初始化音频输出
         audioOutputManager.initialize()
@@ -137,8 +138,9 @@ class ConversationManager(
 
     /**
      * 开始会话
+     * @param voiceLanguage AI 回复使用的语言: "en" (英语) 或 "zh" (中文)
      */
-    suspend fun startSession(): Result<String> {
+    suspend fun startSession(voiceLanguage: String = "en"): Result<String> {
         return try {
             // 生成会话 ID
             val sessionId = "session_${System.currentTimeMillis()}"
@@ -152,7 +154,7 @@ class ConversationManager(
                 sessionId = sessionId,
                 startTime = System.currentTimeMillis(),
                 deviceInfo = android.os.Build.MODEL,
-                modelName = RealtimeConfig.MODEL_NAME
+                modelName = modelName
             )
             database.sessionDao().insertSession(session)
 
@@ -165,9 +167,13 @@ class ConversationManager(
 
             // 更新会话配置
             // ✅ 方案A：不使用 input_audio_buffer，因此禁用相关功能
+            // ✅ 根据语言设置使用对应的系统提示
+            val systemPrompt = RealtimeConfig.getSystemPrompt(voiceLanguage)
+            Log.d(TAG, "🌐 Voice language: $voiceLanguage")
+
             val sessionUpdate = ClientMessage.SessionUpdate(
                 session = ClientMessage.SessionUpdate.Session(
-                    instructions = RealtimeConfig.SYSTEM_PROMPT,
+                    instructions = systemPrompt,
                     inputAudioTranscription = null,  // 禁用：只对 input_audio_buffer 有效
                     turnDetection = null  // 禁用 server_vad，使用客户端 VAD
                 )
@@ -291,7 +297,14 @@ class ConversationManager(
      */
     private suspend fun handleSpeechStart(timestamp: Long) {
         val currentState = _conversationState.value
-        Log.d(TAG, "🔄 handleSpeechStart in state: $currentState")
+
+        // 🔍 诊断日志：打断问题
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
+        Log.i(TAG, "🎤 handleSpeechStart CALLED")
+        Log.i(TAG, "  📍 Current state: $currentState")
+        Log.i(TAG, "  🔊 AudioOutput isPlaying: ${audioOutputManager.isPlaying()}")
+        Log.i(TAG, "  📦 AudioOutput queue size: ${audioOutputManager.getQueueSize()}")
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
 
         when (currentState) {
             ConversationState.IDLE -> {
@@ -312,14 +325,20 @@ class ConversationManager(
             }
             ConversationState.MODEL_SPEAKING -> {
                 // MODEL_SPEAKING → INTERRUPTING
+                Log.i(TAG, "🚨🚨🚨 INTERRUPT TRIGGERED 🚨🚨🚨")
                 Log.i(TAG, "📢 Transition: MODEL_SPEAKING → INTERRUPTING (user interrupted)")
                 stateMachine.handleEvent(ConversationEvent.UserInterrupt)
 
                 // 取消模型回应
-                realtimeWebSocket.send(ClientMessage.ResponseCancel())
+                Log.i(TAG, "  📤 Sending ResponseCancel to server...")
+                val cancelSent = realtimeWebSocket.send(ClientMessage.ResponseCancel())
+                Log.i(TAG, "  📤 ResponseCancel sent: $cancelSent")
 
                 // 清空音频输出队列（立即停止播放）
+                Log.i(TAG, "  🔇 Calling audioOutputManager.flush(resume=false)...")
+                Log.i(TAG, "  🔇 Before flush - isPlaying: ${audioOutputManager.isPlaying()}, queueSize: ${audioOutputManager.getQueueSize()}")
                 audioOutputManager.flush(resume = false)
+                Log.i(TAG, "  🔇 After flush - isPlaying: ${audioOutputManager.isPlaying()}, queueSize: ${audioOutputManager.getQueueSize()}")
 
                 // 结束模型 turn（标记为被打断）
                 endCurrentModelTurn(interrupted = true)
@@ -336,10 +355,11 @@ class ConversationManager(
 
                 // 记录事件
                 recordEvent("INTERRUPT", "User interrupted model")
+                Log.i(TAG, "🚨🚨🚨 INTERRUPT COMPLETE 🚨🚨🚨")
             }
             else -> {
                 // 其他状态不处理
-                Log.w(TAG, "⚠️ Ignoring speech start in state: $currentState")
+                Log.w(TAG, "⚠️ Ignoring speech start in state: $currentState (not IDLE or MODEL_SPEAKING)")
             }
         }
     }
@@ -669,14 +689,35 @@ class ConversationManager(
         Log.d(TAG, "📝 No explicit text instruction - let AI match user's language from audio")
 
         // 3️⃣ 添加图片（如果有）
+        // 🔍 诊断日志：图片发送问题
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
+        Log.i(TAG, "📸 IMAGE DIAGNOSTIC - Checking captured images")
+        val allImages = synchronized(capturedImages) {
+            capturedImages.toList()
+        }
+        Log.i(TAG, "  📦 Total captured images: ${allImages.size}")
+        allImages.forEachIndexed { index, img ->
+            Log.i(TAG, "    [$index] ${img.width}x${img.height}, ${img.sizeBytes} bytes, quality=${img.quality}")
+        }
+
         // 创建副本避免并发修改
         val latestImage = synchronized(capturedImages) {
             if (capturedImages.isNotEmpty()) capturedImages.last() else null
         }
 
         if (latestImage != null) {
-            Log.d(TAG, "📸 Adding latest image:")
-            Log.d(TAG, "  📷 Image: ${latestImage.width}x${latestImage.height}, ${latestImage.sizeBytes} bytes, quality=${latestImage.quality}")
+            Log.i(TAG, "  ✅ Using latest image: ${latestImage.width}x${latestImage.height}, ${latestImage.sizeBytes} bytes")
+
+            // 验证 data URL 格式
+            val dataUrlPrefix = latestImage.dataUrl.take(50)
+            Log.i(TAG, "  🔍 Data URL prefix: $dataUrlPrefix...")
+            Log.i(TAG, "  🔍 Data URL total length: ${latestImage.dataUrl.length} chars")
+
+            if (!latestImage.dataUrl.startsWith("data:image/jpeg;base64,")) {
+                Log.e(TAG, "  ❌ INVALID DATA URL FORMAT! Expected 'data:image/jpeg;base64,' prefix")
+            } else {
+                Log.i(TAG, "  ✅ Data URL format is valid")
+            }
 
             // 保存图片副本用于调试
             try {
@@ -684,22 +725,27 @@ class ConversationManager(
                 val jpegBytes = ImageProcessor.decodeDataUrl(latestImage.dataUrl)
                 if (jpegBytes != null) {
                     fileManager.saveImageFile(sessionId, debugPath, jpegBytes)
-                    Log.d(TAG, "  💾 Saved image debug copy: $debugPath")
+                    Log.i(TAG, "  💾 Saved debug image: $debugPath (${jpegBytes.size} bytes)")
+                } else {
+                    Log.e(TAG, "  ❌ Failed to decode data URL - jpegBytes is null!")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "  ⚠️ Failed to save image: ${e.message}")
+                Log.e(TAG, "  ❌ Failed to save debug image: ${e.message}")
             }
 
             // 添加到内容
+            // ✅ 修复：image_url 应该直接是 data URL 字符串，不是嵌套对象
             contents.add(
                 ClientMessage.ConversationItemCreate.Content(
                     type = "input_image",
-                    imageUrl = ClientMessage.ConversationItemCreate.ImageUrl(url = latestImage.dataUrl)
+                    imageUrl = latestImage.dataUrl  // 直接使用字符串
                 )
             )
+            Log.i(TAG, "  ✅ Image added to contents list (dataUrl as string)")
         } else {
-            Log.w(TAG, "⚠️ No images to send")
+            Log.e(TAG, "  ❌ NO IMAGES TO SEND - capturedImages is empty!")
         }
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
 
         // 4️⃣ 构建并发送消息
         val message = ClientMessage.ConversationItemCreate(
@@ -709,12 +755,31 @@ class ConversationManager(
             )
         )
 
+        // 🔍 诊断日志：发送的消息结构
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
+        Log.i(TAG, "📤 SENDING MESSAGE DIAGNOSTIC")
+        Log.i(TAG, "  📦 Message type: ${message.type}")
+        Log.i(TAG, "  📦 Content parts: ${contents.size}")
+        contents.forEachIndexed { index, content ->
+            when (content.type) {
+                "input_audio" -> {
+                    val audioLen = content.audio?.length ?: 0
+                    Log.i(TAG, "    [$index] type=input_audio, base64_length=$audioLen")
+                }
+                "input_image" -> {
+                    val imageUrlLen = content.imageUrl?.length ?: 0
+                    Log.i(TAG, "    [$index] type=input_image, dataUrl_length=$imageUrlLen")
+                }
+                else -> {
+                    Log.i(TAG, "    [$index] type=${content.type}")
+                }
+            }
+        }
+        Log.i(TAG, "═══════════════════════════════════════════════════════════")
+
         val success = realtimeWebSocket.send(message)
         if (success) {
-            Log.i(TAG, "✅ Successfully sent conversation item with ${contents.size} content parts:")
-            contents.forEachIndexed { index, content ->
-                Log.i(TAG, "   ${index + 1}. ${content.type}")
-            }
+            Log.i(TAG, "✅ Successfully sent conversation item with ${contents.size} content parts")
         } else {
             Log.e(TAG, "❌ Failed to send conversation item")
         }
@@ -770,8 +835,8 @@ class ConversationManager(
 
         val contents = listOf(
             ClientMessage.ConversationItemCreate.Content(
-                type = "input_image",  // ✅ 使用正确的类型
-                imageUrl = ClientMessage.ConversationItemCreate.ImageUrl(url = latestImage.dataUrl)
+                type = "input_image",
+                imageUrl = latestImage.dataUrl  // ✅ 修复：直接使用字符串
             )
         )
 
@@ -873,6 +938,14 @@ class ConversationManager(
                     // 准备接收新音频（重置 flush 状态）
                     audioOutputManager.prepareForNewAudio()
 
+                    // ✅ 修复打断问题：启用打断模式
+                    // AI 开始说话时，麦克风可能捕获到 AI 的回声
+                    // 打断模式会：
+                    // 1. 提高 VAD 阈值（3x），避免回声触发
+                    // 2. 重置 VAD 状态，让用户说话可以重新触发 SpeechStart
+                    Log.d(TAG, "🔄 Enabling VAD interrupt mode")
+                    vadDetector.enableInterruptMode()
+
                     // 开始模型 turn
                     scope.launch {
                         startModelTurn(System.currentTimeMillis())
@@ -912,6 +985,10 @@ class ConversationManager(
                 scope.launch {
                     val status = message.response.status
                     Log.d(TAG, "Response done with status: $status")
+
+                    // AI 说完话，禁用打断模式，恢复正常 VAD 阈值
+                    Log.d(TAG, "🔄 Disabling VAD interrupt mode")
+                    vadDetector.disableInterruptMode()
 
                     when (status) {
                         "completed" -> {

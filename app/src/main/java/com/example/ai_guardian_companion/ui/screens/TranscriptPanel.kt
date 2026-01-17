@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ai_guardian_companion.conversation.ConversationState
+import com.example.ai_guardian_companion.ui.LocalStrings
 import com.example.ai_guardian_companion.ui.model.ConversationMessage
 import com.example.ai_guardian_companion.ui.model.SessionStats
 import java.text.SimpleDateFormat
@@ -69,23 +70,24 @@ private fun StatsHeader(
     sessionStats: SessionStats,
     conversationState: ConversationState
 ) {
+    val strings = LocalStrings.current
     Column {
         // 会话状态
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "状态：",
+                text = strings.statusLabel,
                 color = Color.White.copy(alpha = 0.7f),
                 fontSize = 14.sp
             )
             Spacer(modifier = Modifier.width(8.dp))
 
             val (statusText, statusColor) = when (conversationState) {
-                ConversationState.IDLE -> "空闲" to Color.Gray
-                ConversationState.LISTENING -> "聆听中" to Color(0xFF4CAF50)
-                ConversationState.MODEL_SPEAKING -> "回应中" to Color(0xFF2196F3)
-                ConversationState.INTERRUPTING -> "打断中" to Color(0xFFFFA000)
+                ConversationState.IDLE -> strings.stateIdle to Color.Gray
+                ConversationState.LISTENING -> strings.stateListening to Color(0xFF4CAF50)
+                ConversationState.MODEL_SPEAKING -> strings.stateModelSpeaking to Color(0xFF2196F3)
+                ConversationState.INTERRUPTING -> strings.stateInterrupting to Color(0xFFFFA000)
             }
 
             Surface(
@@ -109,9 +111,9 @@ private fun StatsHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            StatItem(label = "总轮次", value = sessionStats.turnCount.toString())
-            StatItem(label = "用户", value = sessionStats.userTurns.toString())
-            StatItem(label = "AI", value = sessionStats.modelTurns.toString())
+            StatItem(label = strings.totalTurns, value = sessionStats.turnCount.toString())
+            StatItem(label = strings.user, value = sessionStats.userTurns.toString())
+            StatItem(label = strings.ai, value = sessionStats.modelTurns.toString())
         }
     }
 }
@@ -158,12 +160,13 @@ private fun MessageList(
 
     if (messages.isEmpty()) {
         // 空状态
+        val strings = LocalStrings.current
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "开始对话...",
+                text = strings.startingConversation,
                 color = Color.White.copy(alpha = 0.5f),
                 fontSize = 14.sp
             )
